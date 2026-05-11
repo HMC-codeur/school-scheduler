@@ -10,12 +10,24 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 @router.post("/generate", response_model=GenerateScheduleResponse)
 def generate_schedule() -> GenerateScheduleResponse:
     result = SchedulerService.generate(store.classes, store.teachers, store.subjects, store.slots)
-    if result is None:
+    if not result.success:
         store.schedule = {}
-        return GenerateScheduleResponse(success=False, message="no valid schedule found", schedule={})
+        return GenerateScheduleResponse(success=False, message=result.message, schedule={})
 
-    store.schedule = result
-    return GenerateScheduleResponse(success=True, message="schedule generated", schedule=store.schedule)
+    store.schedule = result.schedule
+    return GenerateScheduleResponse(success=True, message=result.message, schedule=store.schedule)
+
+
+@router.post("/load-demo", response_model=dict)
+def load_demo_data() -> dict:
+    store.load_demo_data()
+    return {"message": "Demo data loaded."}
+
+
+@router.post("/clear", response_model=dict)
+def clear_all_data() -> dict:
+    store.clear_all()
+    return {"message": "All data cleared."}
 
 
 @router.get("", response_model=dict)
