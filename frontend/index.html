@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI School Timetable Generator</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <h1>AI School Timetable Generator</h1>
+
+    <section class="forms-grid">
+      <form id="class-form">
+        <h3>Add Class</h3>
+        <input id="class-name" placeholder="Class name" required />
+        <button type="submit">Add Class</button>
+      </form>
+
+      <form id="subject-form">
+        <h3>Add Subject</h3>
+        <input id="subject-name" placeholder="Subject name" required />
+        <input id="subject-hours" type="number" min="1" placeholder="Hours/week" required />
+        <button type="submit">Add Subject</button>
+      </form>
+
+      <form id="teacher-form">
+        <h3>Add Teacher</h3>
+        <input id="teacher-name" placeholder="Teacher name" required />
+        <input id="teacher-subjects" placeholder="Subjects (comma-separated)" required />
+        <button type="submit">Add Teacher</button>
+      </form>
+
+      <form id="slot-form">
+        <h3>Add Slot</h3>
+        <input id="slot-value" placeholder="Sunday-08:00" required />
+        <button type="submit">Add Slot</button>
+      </form>
+    </section>
+
+    <div class="actions">
+      <button id="generate-btn">Generate Schedule</button>
+      <p id="message"></p>
+    </div>
+
+    <section class="tables-grid">
+      <div>
+        <h3>Classes</h3>
+        <ul id="classes-list"></ul>
+      </div>
+      <div>
+        <h3>Subjects</h3>
+        <ul id="subjects-list"></ul>
+      </div>
+      <div>
+        <h3>Teachers</h3>
+        <ul id="teachers-list"></ul>
+      </div>
+      <div>
+        <h3>Slots</h3>
+        <ul id="slots-list"></ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Schedule Grid</h2>
+      <table id="schedule-table"></table>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
