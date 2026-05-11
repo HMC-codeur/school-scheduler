@@ -1,33 +1,57 @@
 from collections import defaultdict
+from dataclasses import dataclass
 
 from backend.models.schemas import Class, Subject, Teacher
+
+
+@dataclass
+class ScheduleResult:
+    success: bool
+    message: str
+    schedule: dict[str, dict[str, dict[str, str]]]
 
 
 class SchedulerService:
     @staticmethod
     def generate(
         classes: list[Class], teachers: list[Teacher], subjects: list[Subject], slots: list[str]
-    ) -> dict[str, dict[str, dict[str, str]]] | None:
-        if not classes or not teachers or not subjects or not slots:
-            return None
+    ) -> ScheduleResult:
+        if not classes:
+            return ScheduleResult(False, "Cannot generate schedule: no classes added.", {})
+        if not teachers:
+            return ScheduleResult(False, "Cannot generate schedule: no teachers added.", {})
+        if not subjects:
+            return ScheduleResult(False, "Cannot generate schedule: no subjects added.", {})
+        if not slots:
+            return ScheduleResult(False, "Cannot generate schedule: no time slots added.", {})
 
         subject_hours = {s.name: s.hours_per_week for s in subjects}
-        sessions: list[tuple[Class, str]] = []
-        for class_obj in classes:
-            for subject_name, hours in subject_hours.items():
-                sessions.extend((class_obj, subject_name) for _ in range(hours))
-
-        if len(sessions) > len(classes) * len(slots):
-            return None
+        total_required_sessions = len(classes) * sum(subject_hours.values())
+        total_available_sessions = len(classes) * len(slots)
+        if total_required_sessions > total_available_sessions:
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: not enough slots for all required subject hours.",
+                {},
+            )
 
         teachers_by_subject: dict[str, list[Teacher]] = defaultdict(list)
         for teacher in teachers:
             for sub in teacher.subjects:
                 teachers_by_subject[sub].append(teacher)
 
-        for subject in subject_hours:
-            if not teachers_by_subject.get(subject):
-                return None
+        for subject_name in subject_hours:
+            if not teachers_by_subject.get(subject_name):
+                return ScheduleResult(
+                    False,
+                    f"Cannot generate schedule: subject '{subject_name}' has no teacher assigned.",
+                    {},
+                )
+
+        sessions: list[tuple[Class, str]] = []
+        for class_obj in classes:
+            for subject_name, hours in subject_hours.items():
+                sessions.extend((class_obj, subject_name) for _ in range(hours))
 
         sessions.sort(key=lambda x: len(teachers_by_subject.get(x[1], [])))
 
@@ -71,7 +95,11 @@ class SchedulerService:
             return False
 
         if not backtrack(0):
-            return None
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: constraints conflict (teacher/class time collisions).",
+                {},
+            )
 
         schedule: dict[str, dict[str, dict[str, str]]] = defaultdict(dict)
         for item in assignments:
@@ -79,4 +107,4 @@ class SchedulerService:
                 "subject": item["subject"],
                 "teacher": item["teacher"],
             }
-        return dict(schedule)
+        return ScheduleResult(True, "Schedule generated successfully.", dict(schedule))

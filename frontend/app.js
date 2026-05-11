@@ -1,83 +1,86 @@
 const API = "";
 
 async function api(path, options = {}) {
-  const response = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const response = await fetch(`${API}${path}`, { headers: { "Content-Type": "application/json" }, ...options });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || "Request failed");
   }
-  return response.json();
+  return response.json().catch(() => ({}));
 }
 
-function bindForms() {
-  document.getElementById("class-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await handleSubmit("/classes", { name: document.getElementById("class-name").value });
-    e.target.reset();
-  });
-
-  document.getElementById("subject-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await handleSubmit("/subjects", {
-      name: document.getElementById("subject-name").value,
-      hours_per_week: Number(document.getElementById("subject-hours").value),
-    });
-    e.target.reset();
-  });
-
-  document.getElementById("teacher-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const subjects = document.getElementById("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean);
-    await handleSubmit("/teachers", { name: document.getElementById("teacher-name").value, subjects });
-    e.target.reset();
-  });
-
-  document.getElementById("slot-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await handleSubmit("/slots", { slot: document.getElementById("slot-value").value });
-    e.target.reset();
-  });
-
-  document.getElementById("generate-btn").addEventListener("click", generateSchedule);
+function notify(message, type = "success") {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.className = `toast ${type}`;
+  setTimeout(() => (el.className = "toast hidden"), 3000);
 }
 
-async function handleSubmit(path, payload) {
-  try {
-    await api(path, { method: "POST", body: JSON.stringify(payload) });
-    setMessage("Saved", false);
-    await refresh();
-  } catch (e) {
-    setMessage(e.message, true);
+function setLoading(button, isLoading, text) {
+  button.disabled = isLoading;
+  if (isLoading) {
+    button.dataset.originalText = button.textContent;
+    button.textContent = text;
+  } else {
+    button.textContent = button.dataset.originalText || button.textContent;
   }
 }
 
-function setMessage(text, isError) {
-  const el = document.getElementById("message");
-  el.textContent = text;
-  el.style.color = isError ? "#dc2626" : "#16a34a";
+function bindForms() {
+  const bindSubmit = (formId, path, payloadBuilder) => {
+    document.getElementById(formId).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector("button[type='submit']");
+      setLoading(btn, true, "Saving...");
+      try {
+        await api(path, { method: "POST", body: JSON.stringify(payloadBuilder()) });
+        notify("Saved successfully");
+        e.target.reset();
+        await refresh();
+      } catch (error) {
+        notify(error.message, "error");
+      } finally {
+        setLoading(btn, false);
+      }
+    });
+  };
+
+  bindSubmit("class-form", "/classes", () => ({ name: document.getElementById("class-name").value }));
+  bindSubmit("subject-form", "/subjects", () => ({
+    name: document.getElementById("subject-name").value,
+    hours_per_week: Number(document.getElementById("subject-hours").value),
+  }));
+  bindSubmit("teacher-form", "/teachers", () => ({
+    name: document.getElementById("teacher-name").value,
+    subjects: document.getElementById("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean),
+  }));
+  bindSubmit("slot-form", "/slots", () => ({ slot: document.getElementById("slot-value").value }));
+
+  document.getElementById("generate-btn").addEventListener("click", () => runAction("generate-btn", "/schedule/generate", "Generating..."));
+  document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
+  document.getElementById("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Clearing..."));
 }
 
-async function generateSchedule() {
+async function runAction(buttonId, path, loadingLabel) {
+  const btn = document.getElementById(buttonId);
+  setLoading(btn, true, loadingLabel);
   try {
-    const res = await api("/schedule/generate", { method: "POST" });
-    setMessage(res.message, !res.success);
+    const res = await api(path, { method: "POST" });
+    notify(res.message || "Done", res.success === false ? "error" : "success");
     await refresh();
-  } catch (e) {
-    setMessage(e.message, true);
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
   }
 }
 
 async function refresh() {
-  const [classes, subjects, teachers, slots, schedule] = await Promise.all([
-    api("/classes"),
-    api("/subjects"),
-    api("/teachers"),
-    api("/slots"),
-    api("/schedule"),
-  ]);
+  const [classes, subjects, teachers, slots, schedule] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule")]);
+  document.getElementById("count-classes").textContent = classes.length;
+  document.getElementById("count-subjects").textContent = subjects.length;
+  document.getElementById("count-teachers").textContent = teachers.length;
+  document.getElementById("count-slots").textContent = slots.length;
 
   fillList("classes-list", classes.map((x) => x.name));
   fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
@@ -87,23 +90,20 @@ async function refresh() {
 }
 
 function fillList(id, items) {
-  document.getElementById(id).innerHTML = items.map((x) => `<li>${x}</li>`).join("");
+  document.getElementById(id).innerHTML = items.map((x) => `<li>${x}</li>`).join("") || "<li>-</li>";
 }
 
 function renderScheduleTable(slots, classes, schedule) {
   const table = document.getElementById("schedule-table");
+  if (!classes.length || !slots.length) {
+    table.innerHTML = "<tr><td>Add classes and slots to view schedule table.</td></tr>";
+    return;
+  }
   const head = `<tr><th>Slot</th>${classes.map((c) => `<th>${c}</th>`).join("")}</tr>`;
-  const rows = slots
-    .map((slot) => {
-      const cells = classes
-        .map((className) => {
-          const item = schedule?.[slot]?.[className];
-          return `<td>${item ? `${item.subject}<br/><small>${item.teacher}</small>` : "-"}</td>`;
-        })
-        .join("");
-      return `<tr><td>${slot}</td>${cells}</tr>`;
-    })
-    .join("");
+  const rows = slots.map((slot) => `<tr><td>${slot}</td>${classes.map((className) => {
+    const item = schedule?.[slot]?.[className];
+    return `<td>${item ? `<strong>${item.subject}</strong><br/><small>${item.teacher}</small>` : "-"}</td>`;
+  }).join("")}</tr>`).join("");
   table.innerHTML = head + rows;
 }
 
