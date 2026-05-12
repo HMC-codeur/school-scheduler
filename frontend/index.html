@@ -58,6 +58,30 @@
         <button id="generate-btn" class="primary">Generate Schedule</button>
       </section>
 
+      <section class="panel">
+        <h3>Paramètres horaires</h3>
+        <p class="hint">Définissez la structure de votre journée scolaire, puis générez automatiquement les créneaux.</p>
+        <form id="time-settings-form" class="forms-grid compact-grid">
+          <input id="day-start-time" type="time" required />
+          <input id="day-end-time" type="time" required />
+          <input id="lesson-duration-minutes" type="number" min="1" placeholder="Durée cours (min)" required />
+          <input id="break-duration-minutes" type="number" min="0" placeholder="Durée pause (min)" required />
+          <input id="working-days" placeholder="Jours ouvrés (ex: Mon,Tue,Wed,Thu,Fri)" required />
+          <input id="lunch-break-start" type="time" />
+          <input id="lunch-break-end" type="time" />
+          <button type="submit" class="primary">Générer les créneaux</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h3>Conditions</h3>
+        <form id="condition-form" class="inline-form">
+          <textarea id="condition-text" rows="3" placeholder="Exemple : Éviter deux cours difficiles d'affilée pour une même classe."></textarea>
+          <button type="submit">Ajouter condition</button>
+        </form>
+        <ul id="conditions-list"></ul>
+      </section>
+
       <div id="toast" class="toast hidden"></div>
 
       <section class="tables-grid">

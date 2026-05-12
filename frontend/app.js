@@ -95,6 +95,38 @@ function bindForms() {
     return { slot: slot.trim() };
   });
 
+  bindSubmit("condition-form", "/conditions", () => {
+    const text = document.getElementById("condition-text").value;
+    validateNonEmpty(text, "Condition");
+    return { text: text.trim() };
+  });
+
+  bindSubmit("time-settings-form", "/time-settings", () => {
+    const dayStart = document.getElementById("day-start-time").value;
+    const dayEnd = document.getElementById("day-end-time").value;
+    const lessonDuration = Number(document.getElementById("lesson-duration-minutes").value);
+    const breakDuration = Number(document.getElementById("break-duration-minutes").value);
+    const workingDaysRaw = document.getElementById("working-days").value;
+    const lunchStart = document.getElementById("lunch-break-start").value;
+    const lunchEnd = document.getElementById("lunch-break-end").value;
+
+    validateNonEmpty(dayStart, "Start time");
+    validateNonEmpty(dayEnd, "End time");
+    validateNonEmpty(workingDaysRaw, "Working days");
+    if (!Number.isInteger(lessonDuration) || lessonDuration < 1) throw new Error("Lesson duration must be at least 1 minute.");
+    if (!Number.isInteger(breakDuration) || breakDuration < 0) throw new Error("Break duration must be 0 or greater.");
+
+    return {
+      day_start_time: dayStart,
+      day_end_time: dayEnd,
+      lesson_duration_minutes: lessonDuration,
+      break_duration_minutes: breakDuration,
+      working_days: workingDaysRaw.split(",").map((d) => d.trim()).filter(Boolean),
+      lunch_break_start: lunchStart || null,
+      lunch_break_end: lunchEnd || null,
+    };
+  });
+
   document.getElementById("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
   document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
   document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
@@ -148,7 +180,15 @@ function populateUnavailableSlots(slots) {
 }
 
 async function refresh() {
-  const [classes, subjects, teachers, slots, schedule] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule")]);
+  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([
+    api("/classes"),
+    api("/subjects"),
+    api("/teachers"),
+    api("/slots"),
+    api("/schedule"),
+    api("/conditions"),
+    api("/time-settings"),
+  ]);
   document.getElementById("count-classes").textContent = classes.length;
   document.getElementById("count-subjects").textContent = subjects.length;
   document.getElementById("count-teachers").textContent = teachers.length;
@@ -158,8 +198,48 @@ async function refresh() {
   fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
   fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/day: ${x.max_lessons_per_day} | unavailable: ${x.unavailable_slots.join(", ") || "-"}`));
   fillList("slots-list", slots);
+  renderConditionsList(conditions);
+  fillTimeSettingsForm(timeSettings);
   populateUnavailableSlots(slots);
   renderScheduleTable(slots, classes.map((c) => c.name), schedule);
+}
+
+function fillTimeSettingsForm(timeSettings) {
+  if (!timeSettings) return;
+  document.getElementById("day-start-time").value = timeSettings.day_start_time;
+  document.getElementById("day-end-time").value = timeSettings.day_end_time;
+  document.getElementById("lesson-duration-minutes").value = timeSettings.lesson_duration_minutes;
+  document.getElementById("break-duration-minutes").value = timeSettings.break_duration_minutes;
+  document.getElementById("working-days").value = timeSettings.working_days.join(",");
+  document.getElementById("lunch-break-start").value = timeSettings.lunch_break_start || "";
+  document.getElementById("lunch-break-end").value = timeSettings.lunch_break_end || "";
+}
+
+function renderConditionsList(conditions) {
+  const list = document.getElementById("conditions-list");
+  if (!conditions.length) {
+    list.innerHTML = "<li>-</li>";
+    return;
+  }
+
+  list.innerHTML = conditions
+    .map(
+      (condition) =>
+        `<li class="conditions-item"><span>${condition.text}</span><button data-id="${condition.id}" class="danger">Supprimer</button></li>`,
+    )
+    .join("");
+
+  Array.from(list.querySelectorAll("button[data-id]")).forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/conditions/${btn.dataset.id}`, { method: "DELETE" });
+        notify("Condition deleted");
+        await refresh();
+      } catch (error) {
+        notify(error.message, "error");
+      }
+    });
+  });
 }
 
 async function refreshScheduleTable() {

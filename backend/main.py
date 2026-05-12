@@ -3,10 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.classes import router as classes_router
+from backend.api.conditions import router as conditions_router
 from backend.api.schedule import router as schedule_router
 from backend.api.slots import router as slots_router
 from backend.api.subjects import router as subjects_router
 from backend.api.teachers import router as teachers_router
+from backend.api.time_settings import router as time_settings_router
 
 app = FastAPI(title="AI School Timetable Generator", version="0.1.0")
 
@@ -19,9 +21,11 @@ app.add_middleware(
 )
 
 app.include_router(classes_router)
+app.include_router(conditions_router)
 app.include_router(teachers_router)
 app.include_router(subjects_router)
 app.include_router(slots_router)
 app.include_router(schedule_router)
+app.include_router(time_settings_router)
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

@@ -41,6 +41,25 @@ class SlotCreate(BaseModel):
     slot: str = Field(min_length=1)
 
 
+class ConditionCreate(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class Condition(BaseModel):
+    id: int
+    text: str
+
+
+class TimeSettings(BaseModel):
+    day_start_time: str = Field(pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    day_end_time: str = Field(pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    lesson_duration_minutes: int = Field(gt=0)
+    break_duration_minutes: int = Field(ge=0)
+    working_days: list[str] = Field(min_length=1)
+    lunch_break_start: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    lunch_break_end: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
 class SessionRequirement(BaseModel):
     class_id: int
     class_name: str

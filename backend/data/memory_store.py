@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta
 from typing import Dict, List
 
-from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
+from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher, TimeSettings
 
 
 class MemoryStore:
@@ -10,8 +11,11 @@ class MemoryStore:
         self.subjects: List[Subject] = []
         self.slots: List[str] = []
         self.schedule: Dict[str, Dict[str, ScheduleCell]] = {}
+        self.conditions: List[Condition] = []
+        self.time_settings: TimeSettings | None = None
         self._class_id = 1
         self._teacher_id = 1
+        self._condition_id = 1
 
     def clear_all(self) -> None:
         self.classes = []
@@ -19,8 +23,11 @@ class MemoryStore:
         self.subjects = []
         self.slots = []
         self.schedule = {}
+        self.conditions = []
+        self.time_settings = None
         self._class_id = 1
         self._teacher_id = 1
+        self._condition_id = 1
 
     def load_demo_data(self) -> None:
         self.clear_all()
@@ -81,6 +88,52 @@ class MemoryStore:
             raise ValueError(f"Slot '{slot}' already exists")
         self.slots.append(slot)
         return slot
+
+    def add_condition(self, text: str) -> Condition:
+        item = Condition(id=self._condition_id, text=text)
+        self._condition_id += 1
+        self.conditions.append(item)
+        return item
+
+    def delete_condition(self, condition_id: int) -> bool:
+        initial = len(self.conditions)
+        self.conditions = [condition for condition in self.conditions if condition.id != condition_id]
+        return len(self.conditions) < initial
+
+    def set_time_settings(self, settings: TimeSettings) -> list[str]:
+        self.time_settings = settings
+        generated_slots = self.generate_slots_from_time_settings(settings)
+        self.slots = generated_slots
+        return generated_slots
+
+    def generate_slots_from_time_settings(self, settings: TimeSettings) -> list[str]:
+        start = datetime.strptime(settings.day_start_time, "%H:%M")
+        end = datetime.strptime(settings.day_end_time, "%H:%M")
+        if end <= start:
+            raise ValueError("End time must be after start time")
+
+        lunch_start = datetime.strptime(settings.lunch_break_start, "%H:%M") if settings.lunch_break_start else None
+        lunch_end = datetime.strptime(settings.lunch_break_end, "%H:%M") if settings.lunch_break_end else None
+        if (lunch_start and not lunch_end) or (lunch_end and not lunch_start):
+            raise ValueError("Lunch break start and end must both be provided")
+        if lunch_start and lunch_end and lunch_end <= lunch_start:
+            raise ValueError("Lunch break end must be after lunch break start")
+
+        lesson_delta = timedelta(minutes=settings.lesson_duration_minutes)
+        break_delta = timedelta(minutes=settings.break_duration_minutes)
+
+        slots: list[str] = []
+        for day in settings.working_days:
+            current = start
+            while current + lesson_delta <= end:
+                lesson_start = current
+                lesson_end = current + lesson_delta
+                if lunch_start and lunch_end and lesson_start < lunch_end and lesson_end > lunch_start:
+                    current = lunch_end
+                    continue
+                slots.append(f"{day}-{lesson_start.strftime('%H:%M')}")
+                current = lesson_end + break_delta
+        return slots
 
 
 store = MemoryStore()
