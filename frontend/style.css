@@ -8,6 +8,7 @@ body { margin:0; font-family: Inter, Arial, sans-serif; background:var(--bg); co
 .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; justify-content:space-between; align-items:center; }
 .card span{color:var(--muted);} .card strong{font-size:1.5rem;}
 input,select,button { width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--border); }
+textarea { width:100%; margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--border); resize:vertical; font-family: inherit; }
 select[multiple] { min-height: 110px; }
 label { display:block; margin-top:8px; font-size:0.9rem; color:var(--muted); }
 .hint { display:block; margin-top:6px; color:var(--muted); font-size:0.82rem; }
@@ -17,6 +18,9 @@ button.danger { background:var(--danger); color:#fff; border:none; }
 button:disabled { opacity:0.6; cursor:not-allowed; }
 .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:14px; }
 ul { padding-left:18px; margin:0; }
+.inline-form { display: grid; gap: 8px; margin-bottom: 10px; }
+.conditions-item { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px; }
+.conditions-item button { width:auto; margin-top:0; padding:6px 10px; }
 .table-wrap { overflow:auto; }
 table { width:100%; border-collapse:collapse; }
 th,td { border:1px solid var(--border); padding:10px; text-align:left; vertical-align:top; }

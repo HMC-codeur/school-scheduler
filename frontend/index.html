@@ -58,6 +58,15 @@
         <button id="generate-btn" class="primary">Generate Schedule</button>
       </section>
 
+      <section class="panel">
+        <h3>Conditions</h3>
+        <form id="condition-form" class="inline-form">
+          <textarea id="condition-text" rows="3" placeholder="Exemple : Éviter deux cours difficiles d'affilée pour une même classe."></textarea>
+          <button type="submit">Ajouter condition</button>
+        </form>
+        <ul id="conditions-list"></ul>
+      </section>
+
       <div id="toast" class="toast hidden"></div>
 
       <section class="tables-grid">

@@ -41,6 +41,15 @@ class SlotCreate(BaseModel):
     slot: str = Field(min_length=1)
 
 
+class ConditionCreate(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class Condition(BaseModel):
+    id: int
+    text: str
+
+
 class SessionRequirement(BaseModel):
     class_id: int
     class_name: str

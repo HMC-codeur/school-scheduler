@@ -95,6 +95,12 @@ function bindForms() {
     return { slot: slot.trim() };
   });
 
+  bindSubmit("condition-form", "/conditions", () => {
+    const text = document.getElementById("condition-text").value;
+    validateNonEmpty(text, "Condition");
+    return { text: text.trim() };
+  });
+
   document.getElementById("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
   document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
   document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
@@ -148,7 +154,14 @@ function populateUnavailableSlots(slots) {
 }
 
 async function refresh() {
-  const [classes, subjects, teachers, slots, schedule] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule")]);
+  const [classes, subjects, teachers, slots, schedule, conditions] = await Promise.all([
+    api("/classes"),
+    api("/subjects"),
+    api("/teachers"),
+    api("/slots"),
+    api("/schedule"),
+    api("/conditions"),
+  ]);
   document.getElementById("count-classes").textContent = classes.length;
   document.getElementById("count-subjects").textContent = subjects.length;
   document.getElementById("count-teachers").textContent = teachers.length;
@@ -158,8 +171,36 @@ async function refresh() {
   fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
   fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/day: ${x.max_lessons_per_day} | unavailable: ${x.unavailable_slots.join(", ") || "-"}`));
   fillList("slots-list", slots);
+  renderConditionsList(conditions);
   populateUnavailableSlots(slots);
   renderScheduleTable(slots, classes.map((c) => c.name), schedule);
+}
+
+function renderConditionsList(conditions) {
+  const list = document.getElementById("conditions-list");
+  if (!conditions.length) {
+    list.innerHTML = "<li>-</li>";
+    return;
+  }
+
+  list.innerHTML = conditions
+    .map(
+      (condition) =>
+        `<li class="conditions-item"><span>${condition.text}</span><button data-id="${condition.id}" class="danger">Supprimer</button></li>`,
+    )
+    .join("");
+
+  Array.from(list.querySelectorAll("button[data-id]")).forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/conditions/${btn.dataset.id}`, { method: "DELETE" });
+        notify("Condition deleted");
+        await refresh();
+      } catch (error) {
+        notify(error.message, "error");
+      }
+    });
+  });
 }
 
 async function refreshScheduleTable() {

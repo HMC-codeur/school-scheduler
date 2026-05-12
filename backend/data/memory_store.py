@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
+from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
 
 
 class MemoryStore:
@@ -10,8 +10,10 @@ class MemoryStore:
         self.subjects: List[Subject] = []
         self.slots: List[str] = []
         self.schedule: Dict[str, Dict[str, ScheduleCell]] = {}
+        self.conditions: List[Condition] = []
         self._class_id = 1
         self._teacher_id = 1
+        self._condition_id = 1
 
     def clear_all(self) -> None:
         self.classes = []
@@ -19,8 +21,10 @@ class MemoryStore:
         self.subjects = []
         self.slots = []
         self.schedule = {}
+        self.conditions = []
         self._class_id = 1
         self._teacher_id = 1
+        self._condition_id = 1
 
     def load_demo_data(self) -> None:
         self.clear_all()
@@ -81,6 +85,17 @@ class MemoryStore:
             raise ValueError(f"Slot '{slot}' already exists")
         self.slots.append(slot)
         return slot
+
+    def add_condition(self, text: str) -> Condition:
+        item = Condition(id=self._condition_id, text=text)
+        self._condition_id += 1
+        self.conditions.append(item)
+        return item
+
+    def delete_condition(self, condition_id: int) -> bool:
+        initial = len(self.conditions)
+        self.conditions = [condition for condition in self.conditions if condition.id != condition_id]
+        return len(self.conditions) < initial
 
 
 store = MemoryStore()
