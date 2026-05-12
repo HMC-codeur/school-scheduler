@@ -74,12 +74,31 @@ function bindForms() {
   document.getElementById("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
   document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
   document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
+  document.getElementById("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
   document.getElementById("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Clearing..."));
 }
 
 function updateUnavailableSlotsSummary() { const selected = getUnavailableSlots(); document.getElementById("teacher-unavailable-selected").textContent = selected.length ? `Créneaux sélectionnés : ${selected.join(", ")}` : "Aucun créneau sélectionné."; }
-async function runAction(buttonId, path, loadingLabel) { const btn = document.getElementById(buttonId); setLoading(btn, true, loadingLabel); try { const res = await api(path, { method: "POST" }); notify(res.message || "Done", res.success === false ? "error" : "success"); await refresh(); } catch (error) { notify(error.message, "error"); } finally { setLoading(btn, false); } }
+async function runAction(buttonId, path, loadingLabel) { const btn = document.getElementById(buttonId); setLoading(btn, true, loadingLabel); try { const res = await api(path, { method: "POST" }); notify(res.message || "Done", res.success === false ? "error" : "success"); await refresh(); if (path === "/schedule/clear") document.getElementById("demo-summary").textContent = "Aucune démo volumineuse chargée."; } catch (error) { notify(error.message, "error"); } finally { setLoading(btn, false); } }
 async function runGenerateSchedule() { const btn = document.getElementById("generate-btn"); setLoading(btn, true, "Generating..."); try { const res = await api("/schedule/generate", { method: "POST" }); if (res.success === false) throw new Error(res.message || "Failed to generate schedule"); renderQualityMetrics(res); await refreshScheduleTable(); notify(res.message || "Emploi du temps généré avec succès"); document.getElementById("generation-status").textContent = `Dernière génération : ${new Date().toLocaleString("fr-FR")}.`; } catch (error) { notify(`Échec de génération : ${error.message}`, "error"); } finally { setLoading(btn, false); } }
+async function runLoadLargeDemo() {
+  const btn = document.getElementById("load-large-demo-btn");
+  setLoading(btn, true, "Chargement en cours...");
+  const startedAt = performance.now();
+  try {
+    const res = await api("/schedule/load-large-demo", { method: "POST" });
+    await refresh();
+    const stats = res.stats || {};
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    document.getElementById("demo-summary").textContent = `Grosse démo chargée : ${stats.classes || 0} classes, ${stats.teachers || 0} professeurs, ${stats.subjects || 0} matières, ${stats.slots || 0} créneaux (${elapsedMs} ms).`;
+    document.getElementById("generation-status").textContent = "Démo prête : vous pouvez générer immédiatement un emploi du temps.";
+    notify("Grosse démo chargée avec succès.");
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
 function renderQualityMetrics(metrics) { /* unchanged */ const card = document.getElementById("quality-card"); const hasMetrics = Number.isFinite(metrics?.quality_score); if (!hasMetrics) { card.className = "quality-card quality-unknown"; document.getElementById("quality-score").textContent = "--/100"; document.getElementById("quality-conflicts").textContent = "-"; document.getElementById("quality-gaps").textContent = "-"; document.getElementById("quality-repeats").textContent = "-"; document.getElementById("quality-sequences").textContent = "-"; document.getElementById("quality-balance").textContent = "-"; return; } const score = Number(metrics.quality_score); const level = score >= 75 ? "good" : score >= 50 ? "average" : "bad"; card.className = `quality-card quality-${level}`; document.getElementById("quality-score").textContent = `${score}/100`; document.getElementById("quality-conflicts").textContent = String(metrics.conflicts_count ?? 0); document.getElementById("quality-gaps").textContent = String(metrics.gaps_count ?? 0); document.getElementById("quality-repeats").textContent = String(metrics.repeated_subjects_count ?? 0); document.getElementById("quality-sequences").textContent = String(metrics.long_sequences_count ?? 0); document.getElementById("quality-balance").textContent = String(metrics.load_balance_status ?? "-"); }
 function populateUnavailableSlots(slots) { const select = document.getElementById("teacher-unavailable-slots"); const currentSelection = new Set(getUnavailableSlots()); select.innerHTML = slots.map((slot) => `<option value="${slot}">${slot}</option>`).join(""); Array.from(select.options).forEach((opt) => { opt.selected = currentSelection.has(opt.value); }); const conditionSlot = document.getElementById("condition-slot"); conditionSlot.innerHTML = `<option value="">Choisir un créneau</option>${slots.map((slot) => `<option value="${slot}">${slot}</option>`).join("")}`; updateUnavailableSlotsSummary(); }
 async function refresh() { const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule"), api("/conditions"), api("/time-settings")]); document.getElementById("count-classes").textContent = classes.length; document.getElementById("count-subjects").textContent = subjects.length; document.getElementById("count-teachers").textContent = teachers.length; document.getElementById("count-slots").textContent = slots.length; fillList("classes-list", classes.map((x) => `${x.name} (max/day: ${x.max_lessons_per_day})`)); fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`)); fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/day: ${x.max_lessons_per_day} | unavailable: ${x.unavailable_slots.join(", ") || "-"}`)); fillList("slots-list", slots); renderConditionsList(conditions); fillTimeSettingsForm(timeSettings); populateUnavailableSlots(slots); renderScheduleTable(slots, classes.map((c) => c.name), schedule); renderQualityMetrics({}); updateConditionFieldVisibility(); }

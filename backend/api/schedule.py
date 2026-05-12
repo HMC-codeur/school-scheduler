@@ -34,6 +34,12 @@ def load_demo_data() -> dict:
     return {"message": "Demo data loaded."}
 
 
+@router.post("/load-large-demo", response_model=dict)
+def load_large_demo_data() -> dict:
+    stats = store.load_large_demo_data()
+    return {"message": "Large demo data loaded.", "stats": stats}
+
+
 @router.post("/clear", response_model=dict)
 def clear_all_data() -> dict:
     store.clear_all()
