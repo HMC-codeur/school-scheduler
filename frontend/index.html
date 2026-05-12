@@ -24,6 +24,8 @@
         <form id="class-form" class="panel">
           <h3>Add Class</h3>
           <input id="class-name" placeholder="Class name" required />
+          <input id="class-max-lessons" type="number" min="1" value="6" required />
+          <small class="hint">Max lessons/day for this class</small>
           <button type="submit">Add Class</button>
         </form>
         <form id="subject-form" class="panel">
@@ -36,6 +38,11 @@
           <h3>Add Teacher</h3>
           <input id="teacher-name" placeholder="Teacher name" required />
           <input id="teacher-subjects" placeholder="Subjects (comma-separated)" required />
+          <input id="teacher-max-lessons" type="number" min="1" value="6" required />
+          <small class="hint">Max lessons/day for this teacher</small>
+          <label for="teacher-unavailable-slots">Unavailable slots</label>
+          <select id="teacher-unavailable-slots" multiple size="4"></select>
+          <small id="teacher-unavailable-selected" class="hint">No unavailable slots selected.</small>
           <button type="submit">Add Teacher</button>
         </form>
         <form id="slot-form" class="panel">
