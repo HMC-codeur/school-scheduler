@@ -130,6 +130,17 @@
           <section class="panel" id="schedule-section">
             <h2>Résultat généré</h2>
             <p class="hint">Le tableau reste lisible avec beaucoup de données grâce au scroll horizontal.</p>
+            <article class="quality-card quality-unknown" id="quality-card">
+              <h3>Qualité de l'emploi du temps</h3>
+              <p id="quality-score" class="quality-score">--/100</p>
+              <ul class="quality-details">
+                <li>Conflits : <strong id="quality-conflicts">-</strong></li>
+                <li>Trous : <strong id="quality-gaps">-</strong></li>
+                <li>Répétitions : <strong id="quality-repeats">-</strong></li>
+                <li>Longues séries : <strong id="quality-sequences">-</strong></li>
+                <li>Équilibre : <strong id="quality-balance">-</strong></li>
+              </ul>
+            </article>
             <div class="table-wrap"><table id="schedule-table"></table></div>
           </section>
         </main>
