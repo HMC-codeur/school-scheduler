@@ -61,7 +61,23 @@ ul { margin: 0; padding-left: 18px; }
 .conditions-item { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; align-items: flex-start; }
 .conditions-item button { width: auto; padding: 8px 10px; margin-top: 0; min-height: 34px; }
 
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.schedule-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+.schedule-controls label { margin-top: 0; }
+.schedule-empty-message {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px dashed #c8d5f9;
+  border-radius: 10px;
+  background: #f7f9ff;
+  font-weight: 600;
+}
+
+.table-wrap { overflow: auto; max-height: 68vh; border: 1px solid var(--border); border-radius: 12px; }
 .quality-card { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #f9fbff; }
 .quality-card h3 { margin: 0 0 8px; }
 .quality-score { font-size: 2rem; font-weight: 800; margin: 0 0 8px; }
@@ -70,11 +86,12 @@ ul { margin: 0; padding-left: 18px; }
 .quality-average { border-color: #ffd08a; background: #fff7ea; color: #8a4c00; }
 .quality-bad { border-color: #f2a2a2; background: #fff0f0; color: #9a2424; }
 .quality-unknown { border-style: dashed; }
-table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; }
-th, td { padding: 11px; border-bottom: 1px solid var(--border); border-right: 1px solid #edf1f8; vertical-align: top; }
+table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; font-size: 0.95rem; }
+th, td { padding: 14px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid #edf1f8; vertical-align: top; min-width: 180px; }
 th:last-child, td:last-child { border-right: 0; }
 th { background: #eef3ff; position: sticky; top: 0; z-index: 1; text-align: left; }
-.slot-col { font-weight: 700; white-space: nowrap; background: #fbfcff; }
+.slot-col { font-weight: 700; white-space: nowrap; background: #fbfcff; min-width: 150px; position: sticky; left: 0; z-index: 2; }
+th.slot-col { z-index: 3; }
 .cell-subject { font-weight: 700; color: #1f2f56; background: #edf3ff; border-radius: 8px; padding: 3px 8px; display: inline-block; }
 .cell-teacher { color: var(--muted); margin-top: 4px; font-size: 0.9rem; }
 .empty-cell { color: #90a0bf; font-style: italic; }

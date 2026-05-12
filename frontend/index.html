@@ -148,7 +148,28 @@
 
           <section class="panel" id="schedule-section">
             <h2>Résultat généré</h2>
-            <p class="hint">Le tableau reste lisible avec beaucoup de données grâce au scroll horizontal.</p>
+            <p class="hint">Le tableau reste lisible avec beaucoup de données grâce aux filtres et au scroll contrôlé.</p>
+            <div class="schedule-controls" aria-label="Filtres d'affichage du planning">
+              <label for="schedule-view-mode">Mode d'affichage</label>
+              <select id="schedule-view-mode">
+                <option value="class">Vue classe</option>
+                <option value="teacher">Vue professeur</option>
+              </select>
+
+              <label for="schedule-class-filter">Choisir une classe</label>
+              <select id="schedule-class-filter">
+                <option value="">Choisir une classe</option>
+              </select>
+
+              <label for="schedule-teacher-filter">Choisir un professeur</label>
+              <select id="schedule-teacher-filter">
+                <option value="">Choisir un professeur</option>
+              </select>
+
+              <label for="schedule-search">Recherche (classe ou professeur)</label>
+              <input id="schedule-search" type="search" placeholder="Ex: 6A ou Mme Dupont" />
+            </div>
+            <p id="schedule-empty-message" class="hint schedule-empty-message">Sélectionnez une classe ou un professeur.</p>
             <article class="quality-card quality-unknown" id="quality-card">
               <h3>Qualité de l'emploi du temps</h3>
               <p id="quality-score" class="quality-score">--/100</p>
