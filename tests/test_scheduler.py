@@ -85,3 +85,16 @@ def test_impossible_schedule_with_teacher_unavailability_reports_clear_message()
 
     assert result.success is False
     assert "no available slots" in result.message.lower()
+
+
+def test_scheduler_spreads_lessons_across_days_when_possible():
+    classes = [Class(id=1, name="A")]
+    subjects = [Subject(name="Math", hours_per_week=2), Subject(name="English", hours_per_week=2)]
+    teachers = [Teacher(id=1, name="TM", subjects=["Math"]), Teacher(id=2, name="TE", subjects=["English"])]
+    slots = ["Mon-08", "Mon-09", "Tue-08", "Tue-09"]
+
+    result = SchedulerService.generate(classes, teachers, subjects, slots)
+
+    assert result.success is True
+    used_days = {slot.split("-", 1)[0] for slot, cells in result.schedule.items() if "A" in cells}
+    assert used_days == {"Mon", "Tue"}
