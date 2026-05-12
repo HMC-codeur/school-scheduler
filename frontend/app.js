@@ -56,7 +56,7 @@ function bindForms() {
   }));
   bindSubmit("slot-form", "/slots", () => ({ slot: document.getElementById("slot-value").value }));
 
-  document.getElementById("generate-btn").addEventListener("click", () => runAction("generate-btn", "/schedule/generate", "Generating..."));
+  document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
   document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
   document.getElementById("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Clearing..."));
 }
@@ -75,6 +75,23 @@ async function runAction(buttonId, path, loadingLabel) {
   }
 }
 
+async function runGenerateSchedule() {
+  const btn = document.getElementById("generate-btn");
+  setLoading(btn, true, "Generating...");
+  try {
+    const res = await api("/schedule/generate", { method: "POST" });
+    if (res.success === false) {
+      throw new Error(res.message || "Failed to generate schedule");
+    }
+    await refreshScheduleTable();
+    notify(res.message || "Schedule generated successfully");
+  } catch (error) {
+    notify(`Schedule generation failed: ${error.message}`, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
 async function refresh() {
   const [classes, subjects, teachers, slots, schedule] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule")]);
   document.getElementById("count-classes").textContent = classes.length;
@@ -86,6 +103,11 @@ async function refresh() {
   fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
   fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")}`));
   fillList("slots-list", slots);
+  renderScheduleTable(slots, classes.map((c) => c.name), schedule);
+}
+
+async function refreshScheduleTable() {
+  const [classes, slots, schedule] = await Promise.all([api("/classes"), api("/slots"), api("/schedule")]);
   renderScheduleTable(slots, classes.map((c) => c.name), schedule);
 }
 
