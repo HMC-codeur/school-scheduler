@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ClassCreate(BaseModel):
@@ -43,11 +45,36 @@ class SlotCreate(BaseModel):
 
 class ConditionCreate(BaseModel):
     text: str = Field(min_length=1)
+    condition_type: Literal[
+        "teacher_unavailable",
+        "class_unavailable",
+        "subject_morning_preference",
+        "avoid_subject_repeat",
+    ] = "teacher_unavailable"
+    teacher_name: str | None = None
+    class_name: str | None = None
+    subject_name: str | None = None
+    slot: str | None = None
+
+    @model_validator(mode="after")
+    def validate_by_type(self) -> "ConditionCreate":
+        if self.condition_type == "teacher_unavailable":
+            if not self.teacher_name or not self.slot:
+                raise ValueError("teacher_name and slot are required for teacher_unavailable")
+        elif self.condition_type == "class_unavailable":
+            if not self.class_name or not self.slot:
+                raise ValueError("class_name and slot are required for class_unavailable")
+        elif self.condition_type == "subject_morning_preference":
+            if not self.subject_name:
+                raise ValueError("subject_name is required for subject_morning_preference")
+        elif self.condition_type == "avoid_subject_repeat":
+            if not self.subject_name:
+                raise ValueError("subject_name is required for avoid_subject_repeat")
+        return self
 
 
-class Condition(BaseModel):
+class Condition(ConditionCreate):
     id: int
-    text: str
 
 
 class TimeSettings(BaseModel):
