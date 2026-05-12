@@ -62,6 +62,14 @@ ul { margin: 0; padding-left: 18px; }
 .conditions-item button { width: auto; padding: 8px 10px; margin-top: 0; min-height: 34px; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.quality-card { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #f9fbff; }
+.quality-card h3 { margin: 0 0 8px; }
+.quality-score { font-size: 2rem; font-weight: 800; margin: 0 0 8px; }
+.quality-details { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.quality-good { border-color: #8ed8ad; background: #edf9f2; color: #145c33; }
+.quality-average { border-color: #ffd08a; background: #fff7ea; color: #8a4c00; }
+.quality-bad { border-color: #f2a2a2; background: #fff0f0; color: #9a2424; }
+.quality-unknown { border-style: dashed; }
 table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; }
 th, td { padding: 11px; border-bottom: 1px solid var(--border); border-right: 1px solid #edf1f8; vertical-align: top; }
 th:last-child, td:last-child { border-right: 0; }

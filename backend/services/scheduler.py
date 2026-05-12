@@ -9,6 +9,12 @@ class ScheduleResult:
     success: bool
     message: str
     schedule: dict[str, dict[str, ScheduleCell]]
+    quality_score: int | None = None
+    conflicts_count: int | None = None
+    gaps_count: int | None = None
+    repeated_subjects_count: int | None = None
+    long_sequences_count: int | None = None
+    load_balance_status: str | None = None
 
 
 class SchedulerService:
@@ -96,14 +102,7 @@ class SchedulerService:
             for subject_name, hours in subject_hours.items():
                 sessions.extend((class_obj, subject_name) for _ in range(hours))
 
-        def schedule_score(assignments: list[dict[str, str]]) -> int:
-            """
-            Compute a quality score for a complete schedule.
-
-            Higher is better. Conflicts should never happen because constraints
-            are checked while placing sessions, but we still keep strong penalties
-            as a safety net for future edits.
-            """
+        def evaluate_quality(assignments: list[dict[str, str]]) -> dict[str, int | str]:
             class_by_name = {c.name: c for c in classes}
             slot_to_day = {slot: day_of(slot) for slot in slots}
             slots_per_day: dict[str, list[str]] = defaultdict(list)
@@ -120,12 +119,18 @@ class SchedulerService:
                 class_day_subjects[(item["class"], day)].append(item["subject"])
                 teacher_slot_use[(item["teacher"], item["slot"])] += 1
 
-            score = 0
+            score = 100
+            conflicts_count = 0
+            gaps_count = 0
+            repeated_subjects_count = 0
+            long_sequences_count = 0
 
             # Heavy penalty for any conflict (should be zero in normal cases).
             for count in teacher_slot_use.values():
                 if count > 1:
-                    score -= 500 * (count - 1)
+                    overbookings = count - 1
+                    conflicts_count += overbookings
+                    score -= 50 * overbookings
 
             for class_obj in classes:
                 per_day_load = []
@@ -146,6 +151,7 @@ class SchedulerService:
                     if positions:
                         span = positions[-1] - positions[0] + 1
                         holes = span - len(positions)
+                        gaps_count += holes
                         score -= holes * 6
 
                     # Penalize many repeated subjects on same day.
@@ -154,6 +160,7 @@ class SchedulerService:
                         subject_count[subject_name] += 1
                     for repeated in subject_count.values():
                         if repeated > 1:
+                            repeated_subjects_count += repeated - 1
                             score -= (repeated - 1) * 4
 
                     # Penalize long streaks of consecutive classes.
@@ -162,6 +169,7 @@ class SchedulerService:
                         if positions[idx] == positions[idx - 1] + 1:
                             streak += 1
                             if streak > 2:
+                                long_sequences_count += 1
                                 score -= 3
                         else:
                             streak = 1
@@ -171,7 +179,19 @@ class SchedulerService:
                 imbalance = sum(abs(v - avg) for v in per_day_load)
                 score -= int(imbalance * 2)
 
-            return score
+            max_imbalance = max(sum(subject_hours.values()) for _ in classes)
+            load_balance_status = "good" if score >= 75 else "average" if score >= 50 else "bad"
+            if max_imbalance > 0 and score >= 85 and conflicts_count == 0 and gaps_count <= 2:
+                load_balance_status = "good"
+
+            return {
+                "quality_score": max(0, min(100, score)),
+                "conflicts_count": conflicts_count,
+                "gaps_count": gaps_count,
+                "repeated_subjects_count": repeated_subjects_count,
+                "long_sequences_count": long_sequences_count,
+                "load_balance_status": load_balance_status,
+            }
 
         def build_schedule(assignments: list[dict[str, str]]) -> dict[str, dict[str, ScheduleCell]]:
             schedule: dict[str, dict[str, ScheduleCell]] = defaultdict(dict)
@@ -184,6 +204,7 @@ class SchedulerService:
 
         best_assignments: list[dict[str, str]] | None = None
         best_score: int | None = None
+        best_quality_metrics: dict[str, int | str] | None = None
 
         for attempt in range(3):
             # Try multiple session orders and keep the best quality score.
@@ -278,10 +299,12 @@ class SchedulerService:
                 return False
 
             if backtrack(0):
-                candidate_score = schedule_score(assignments)
+                quality_metrics = evaluate_quality(assignments)
+                candidate_score = int(quality_metrics["quality_score"])
                 if best_score is None or candidate_score > best_score:
                     best_score = candidate_score
                     best_assignments = list(assignments)
+                    best_quality_metrics = quality_metrics
 
         if not best_assignments:
             return ScheduleResult(
@@ -294,4 +317,14 @@ class SchedulerService:
                 {},
             )
 
-        return ScheduleResult(True, "Schedule generated successfully.", build_schedule(best_assignments))
+        return ScheduleResult(
+            True,
+            "Schedule generated successfully.",
+            build_schedule(best_assignments),
+            quality_score=int(best_quality_metrics["quality_score"]),
+            conflicts_count=int(best_quality_metrics["conflicts_count"]),
+            gaps_count=int(best_quality_metrics["gaps_count"]),
+            repeated_subjects_count=int(best_quality_metrics["repeated_subjects_count"]),
+            long_sequences_count=int(best_quality_metrics["long_sequences_count"]),
+            load_balance_status=str(best_quality_metrics["load_balance_status"]),
+        )

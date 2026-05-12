@@ -15,7 +15,17 @@ def generate_schedule() -> GenerateScheduleResponse:
         return GenerateScheduleResponse(success=False, message=result.message, schedule={})
 
     store.schedule = result.schedule
-    return GenerateScheduleResponse(success=True, message=result.message, schedule=store.schedule)
+    return GenerateScheduleResponse(
+        success=True,
+        message=result.message,
+        schedule=store.schedule,
+        quality_score=result.quality_score,
+        conflicts_count=result.conflicts_count,
+        gaps_count=result.gaps_count,
+        repeated_subjects_count=result.repeated_subjects_count,
+        long_sequences_count=result.long_sequences_count,
+        load_balance_status=result.load_balance_status,
+    )
 
 
 @router.post("/load-demo", response_model=dict)

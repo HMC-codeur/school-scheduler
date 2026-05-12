@@ -12,6 +12,13 @@ def test_successful_schedule_generation():
 
     assert result.success is True
     assert result.schedule
+    assert result.quality_score is not None
+    assert 0 <= result.quality_score <= 100
+    assert result.conflicts_count is not None
+    assert result.gaps_count is not None
+    assert result.repeated_subjects_count is not None
+    assert result.long_sequences_count is not None
+    assert result.load_balance_status in {"good", "average", "bad"}
 
 
 def test_fail_when_subject_has_no_teacher():

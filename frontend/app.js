@@ -171,6 +171,7 @@ async function runGenerateSchedule() {
   try {
     const res = await api("/schedule/generate", { method: "POST" });
     if (res.success === false) throw new Error(res.message || "Failed to generate schedule");
+    renderQualityMetrics(res);
     await refreshScheduleTable();
     notify(res.message || "Emploi du temps généré avec succès");
     document.getElementById("generation-status").textContent = `Dernière génération : ${new Date().toLocaleString("fr-FR")}.`;
@@ -180,6 +181,31 @@ async function runGenerateSchedule() {
   } finally {
     setLoading(btn, false);
   }
+}
+
+function renderQualityMetrics(metrics) {
+  const card = document.getElementById("quality-card");
+  const hasMetrics = Number.isFinite(metrics?.quality_score);
+  if (!hasMetrics) {
+    card.className = "quality-card quality-unknown";
+    document.getElementById("quality-score").textContent = "--/100";
+    document.getElementById("quality-conflicts").textContent = "-";
+    document.getElementById("quality-gaps").textContent = "-";
+    document.getElementById("quality-repeats").textContent = "-";
+    document.getElementById("quality-sequences").textContent = "-";
+    document.getElementById("quality-balance").textContent = "-";
+    return;
+  }
+
+  const score = Number(metrics.quality_score);
+  const level = score >= 75 ? "good" : score >= 50 ? "average" : "bad";
+  card.className = `quality-card quality-${level}`;
+  document.getElementById("quality-score").textContent = `${score}/100`;
+  document.getElementById("quality-conflicts").textContent = String(metrics.conflicts_count ?? 0);
+  document.getElementById("quality-gaps").textContent = String(metrics.gaps_count ?? 0);
+  document.getElementById("quality-repeats").textContent = String(metrics.repeated_subjects_count ?? 0);
+  document.getElementById("quality-sequences").textContent = String(metrics.long_sequences_count ?? 0);
+  document.getElementById("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
 }
 
 function populateUnavailableSlots(slots) {
@@ -215,6 +241,7 @@ async function refresh() {
   fillTimeSettingsForm(timeSettings);
   populateUnavailableSlots(slots);
   renderScheduleTable(slots, classes.map((c) => c.name), schedule);
+  renderQualityMetrics({});
 }
 
 function fillTimeSettingsForm(timeSettings) {

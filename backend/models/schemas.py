@@ -82,3 +82,9 @@ class GenerateScheduleResponse(BaseModel):
     success: bool
     message: str
     schedule: dict[str, dict[str, ScheduleCell]]
+    quality_score: int | None = None
+    conflicts_count: int | None = None
+    gaps_count: int | None = None
+    repeated_subjects_count: int | None = None
+    long_sequences_count: int | None = None
+    load_balance_status: str | None = None
