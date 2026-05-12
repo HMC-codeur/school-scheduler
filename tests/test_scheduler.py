@@ -1,46 +1,33 @@
-from backend.models.schemas import Class, Condition, Subject, Teacher
-from backend.services.scheduler import SchedulerService
+import threading, time, urllib.request, json
+import uvicorn
+from backend.main import app
 
 
-def test_successful_schedule_generation():
-    classes = [Class(id=1, name="A")]
-    subjects = [Subject(name="Math", hours_per_week=2), Subject(name="English", hours_per_week=1)]
-    teachers = [Teacher(id=1, name="T1", subjects=["Math"]), Teacher(id=2, name="T2", subjects=["English"])]
-    slots = ["Mon-08", "Tue-08", "Wed-08"]
-    result = SchedulerService.generate(classes, teachers, subjects, slots)
-    assert result.success is True
+def req(method, path, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    r = urllib.request.Request(f'http://127.0.0.1:8123{path}', data=body, method=method, headers={'Content-Type':'application/json'})
+    with urllib.request.urlopen(r) as resp:
+        raw = resp.read().decode()
+        return json.loads(raw) if raw else {}
 
 
-def test_teacher_unavailable_condition_is_respected():
-    classes = [Class(id=1, name="A")]
-    subjects = [Subject(name="Math", hours_per_week=1)]
-    teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
-    slots = ["Mon-08:00", "Tue-08:00"]
-    conditions = [Condition(id=1, text="condition", condition_type="teacher_unavailable", teacher_name="T1", slot="Mon-08:00")]
-    result = SchedulerService.generate(classes, teachers, subjects, slots, conditions)
-    assert result.success is True
-    assert "Mon-08:00" not in result.schedule
-
-
-def test_subject_morning_preference_influences_schedule_if_possible():
-    classes = [Class(id=1, name="A")]
-    subjects = [Subject(name="Math", hours_per_week=1)]
-    teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
-    slots = ["Mon-13:00", "Mon-08:00"]
-    conditions = [Condition(id=1, text="condition", condition_type="subject_morning_preference", subject_name="Math")]
-    result = SchedulerService.generate(classes, teachers, subjects, slots, conditions)
-    assert result.success is True
-    assert "A" in result.schedule["Mon-08:00"]
-
-
-def test_avoid_subject_repeat_condition_is_taken_if_possible():
-    classes = [Class(id=1, name="A")]
-    subjects = [Subject(name="Math", hours_per_week=2)]
-    teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
-    slots = ["Mon-08:00", "Mon-09:00", "Tue-08:00"]
-    conditions = [Condition(id=1, text="condition", condition_type="avoid_subject_repeat", subject_name="Math")]
-    result = SchedulerService.generate(classes, teachers, subjects, slots, conditions)
-    assert result.success is True
-    used_slots = [slot for slot, entries in result.schedule.items() if "A" in entries]
-    used_days = {slot.split("-", 1)[0] for slot in used_slots}
-    assert used_days == {"Mon", "Tue"}
+def test_full_flow():
+    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8123, log_level='error'))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start(); time.sleep(0.8)
+    req('POST','/reset')
+    c = req('POST','/classes', {'name':'A','max_lessons_per_day':6})
+    t = req('POST','/teachers', {'name':'T1','subject_ids':[],'unavailable_slot_ids':[],'max_lessons_per_day':6})
+    s = req('POST','/slots', {'label':'Mon-08:00'})
+    sub = req('POST','/subjects', {'name':'Math','weekly_hours':1,'allowed_teacher_ids':[t['id']],'target_class_ids':[c['id']]})
+    gen = req('POST','/schedule/generate')
+    assert gen['success'] is True
+    assert req('GET','/schedule/validate')['valid'] is True
+    assert 'créneau' in urllib.request.urlopen('http://127.0.0.1:8123/schedule/export/csv').read().decode()
+    sess = req('GET','/schedule')[0]
+    req('PUT',f"/schedule/session/{sess['session_id']}", {'class_id':c['id'],'teacher_id':t['id'],'subject_id':sub['id'],'slot_id':s['id']})
+    req('DELETE','/schedule')
+    assert req('GET','/schedule') == []
+    req('POST','/reset')
+    assert req('GET','/classes') == []
+    server.should_exit = True

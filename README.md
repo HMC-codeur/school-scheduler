@@ -1,55 +1,46 @@
-# School Scheduler MVP
+# School Scheduler V1 MVP
 
-School Scheduler est un MVP de génération automatique d’emplois du temps pour établissements scolaires (écoles, yeshivot, lycées, universités).
+Vision: générer et éditer un emploi du temps scolaire localement, avec contraintes réelles, persistance JSON et export CSV.
 
 ## Stack
-- **Backend**: Python + FastAPI
-- **Frontend**: HTML/CSS/JavaScript vanilla
-- **Stockage**: in-memory (MVP)
+- Backend: FastAPI (Python)
+- Frontend: HTML/CSS/JS Vanilla
+- Stockage: fichiers JSON (`backend/data/*.json`)
 
-## Current MVP Features
-- Gestion des classes
-- Gestion des professeurs
-- Gestion des matières
-- Gestion des créneaux
-- Génération automatique d’emploi du temps
-- Vue classe
-- Vue professeur
-- Chargement de données démo
+## Fonctionnalités MVP
+- CRUD classes/professeurs/matières/créneaux
+- Génération automatique avec contraintes
+- Édition manuelle d'une session
+- Validation planning
+- Export CSV
+- Reset global
 
-## Démarrage
-### 1) Installer les dépendances
+## Lancement
 ```bash
 pip install -r requirements.txt
+uvicorn backend.main:app --reload
 ```
+Puis ouvrir `http://127.0.0.1:8000`.
 
-### 2) Lancer le backend
-```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 3) Ouvrir le frontend
-Ouvrir `http://localhost:8000` dans le navigateur.
-
-## Endpoints API
-- `POST /classes`, `GET /classes`
-- `POST /teachers`, `GET /teachers`
-- `POST /subjects`, `GET /subjects`
-- `POST /slots`, `GET /slots`
-- `POST /schedule/generate`, `GET /schedule`
+## Endpoints principaux
+- `POST /classes`, `GET /classes`, `DELETE /classes/{id}`
+- `POST /teachers`, `GET /teachers`, `DELETE /teachers/{id}`
+- `POST /subjects`, `GET /subjects`, `DELETE /subjects/{id}`
+- `POST /slots`, `GET /slots`, `DELETE /slots/{id}`
 - `POST /schedule/load-demo`
-- (support additionnel existant: `/conditions`, `/time-settings`, `/schedule/clear`, `/schedule/load-large-demo`)
+- `POST /schedule/generate`
+- `GET /schedule`, `DELETE /schedule`
+- `PUT /schedule/session/{session_id}`
+- `GET /schedule/validate`
+- `GET /schedule/export/csv`
+- `POST /reset`
 
-## Limites actuelles MVP
-- Pas de persistance (redémarrage = perte des données)
-- Pas d’authentification
-- Pas d’édition manuelle fine du planning généré
-- Pas d’export PDF/Excel
+## Tests
+```bash
+pytest -q
+```
 
-## Next Steps
-- Persistance database
-- Authentification
-- Contraintes avancées (disponibilités détaillées, préférences, salles)
-- Édition manuelle du planning
-- Export PDF/Excel
-- Interface admin multi-école
+## Roadmap
+Phase 1: MVP local JSON + génération + édition + CSV.
+Phase 2: DB réelle + auth + multi-école + rôles + exports avancés.
+Phase 3: SaaS + IA d'assistance + optimisation + cloud.
