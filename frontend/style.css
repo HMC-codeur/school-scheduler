@@ -26,8 +26,8 @@ body { margin: 0; font-family: Inter, system-ui, -apple-system, Arial, sans-seri
 .sidebar { position: sticky; top: 16px; height: fit-content; }
 .sidebar h2 { margin-top: 0; font-size: 1.1rem; }
 .sidebar nav { display: grid; gap: 8px; }
-.sidebar a { text-decoration: none; color: var(--muted); padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; font-weight: 600; }
-.sidebar a:hover { background: var(--primary-soft); border-color: #c9d6ff; color: var(--primary); }
+.view-nav-btn { text-align:left; background:transparent; color: var(--muted); padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; font-weight: 600; }
+.view-nav-btn:hover, .view-nav-btn.active { background: var(--primary-soft); border-color: #c9d6ff; color: var(--primary); }
 
 .cards, .forms-grid, .tables-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
 .card { border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(145deg, #fff, #f9fbff); padding: 14px; display: flex; justify-content: space-between; align-items: center; }
@@ -112,3 +112,7 @@ th.slot-col { z-index: 3; }
   .panel, .topbar { border-radius: 14px; }
   .sidebar nav { grid-template-columns: 1fr; }
 }
+
+
+.app-view { display: none; }
+.app-view.active-view { display: block; }
