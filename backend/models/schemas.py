@@ -13,12 +13,14 @@ class Class(BaseModel):
 class TeacherCreate(BaseModel):
     name: str = Field(min_length=1)
     subjects: list[str] = Field(default_factory=list)
+    unavailable_slots: list[str] = Field(default_factory=list)
 
 
 class Teacher(BaseModel):
     id: int
     name: str
     subjects: list[str]
+    unavailable_slots: list[str] = Field(default_factory=list)
 
 
 class SubjectCreate(BaseModel):

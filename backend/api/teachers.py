@@ -8,7 +8,7 @@ router = APIRouter(prefix="/teachers", tags=["teachers"])
 
 @router.post("", response_model=Teacher)
 def create_teacher(payload: TeacherCreate) -> Teacher:
-    return store.add_teacher(payload.name, payload.subjects)
+    return store.add_teacher(payload.name, payload.subjects, payload.unavailable_slots)
 
 
 @router.get("", response_model=list[Teacher])

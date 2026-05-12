@@ -49,8 +49,13 @@ class MemoryStore:
         self.classes.append(item)
         return item
 
-    def add_teacher(self, name: str, subjects: list[str]) -> Teacher:
-        item = Teacher(id=self._teacher_id, name=name, subjects=subjects)
+    def add_teacher(self, name: str, subjects: list[str], unavailable_slots: list[str] | None = None) -> Teacher:
+        item = Teacher(
+            id=self._teacher_id,
+            name=name,
+            subjects=subjects,
+            unavailable_slots=unavailable_slots or [],
+        )
         self._teacher_id += 1
         self.teachers.append(item)
         return item

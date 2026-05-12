@@ -14,7 +14,12 @@ class ScheduleResult:
 class SchedulerService:
     @staticmethod
     def generate(
-        classes: list[Class], teachers: list[Teacher], subjects: list[Subject], slots: list[str]
+        classes: list[Class],
+        teachers: list[Teacher],
+        subjects: list[Subject],
+        slots: list[str],
+        max_lessons_per_class_per_day: int = 6,
+        max_lessons_per_teacher_per_day: int = 6,
     ) -> ScheduleResult:
         if not classes:
             return ScheduleResult(False, "Cannot generate schedule: no classes added.", {})
@@ -25,6 +30,13 @@ class SchedulerService:
         if not slots:
             return ScheduleResult(False, "Cannot generate schedule: no time slots added.", {})
 
+        def day_of(slot: str) -> str:
+            return slot.split("-", 1)[0]
+
+        days = sorted({day_of(s) for s in slots})
+        if not days:
+            return ScheduleResult(False, "Cannot generate schedule: no valid day information in slots.", {})
+
         subject_hours = {s.name: s.hours_per_week for s in subjects}
         total_required_sessions = len(classes) * sum(subject_hours.values())
         total_available_sessions = len(classes) * len(slots)
@@ -32,6 +44,18 @@ class SchedulerService:
             return ScheduleResult(
                 False,
                 "Cannot generate schedule: not enough slots for all required subject hours.",
+                {},
+            )
+
+        weekly_hours_per_class = sum(subject_hours.values())
+        class_weekly_capacity = len(days) * max_lessons_per_class_per_day
+        if weekly_hours_per_class > class_weekly_capacity:
+            return ScheduleResult(
+                False,
+                (
+                    "Cannot generate schedule: class daily max is too low for weekly requirements "
+                    f"({weekly_hours_per_class} required, {class_weekly_capacity} max capacity per class)."
+                ),
                 {},
             )
 
@@ -48,6 +72,17 @@ class SchedulerService:
                     {},
                 )
 
+        for teacher in teachers:
+            available_slots = [slot for slot in slots if slot not in set(teacher.unavailable_slots)]
+            teacher_weekly_capacity = len(days) * max_lessons_per_teacher_per_day
+            capped_capacity = min(len(available_slots), teacher_weekly_capacity)
+            if capped_capacity <= 0 and teacher.subjects:
+                return ScheduleResult(
+                    False,
+                    f"Cannot generate schedule: teacher '{teacher.name}' has no available slots.",
+                    {},
+                )
+
         sessions: list[tuple[Class, str]] = []
         for class_obj in classes:
             for subject_name, hours in subject_hours.items():
@@ -57,7 +92,18 @@ class SchedulerService:
 
         teacher_busy: dict[tuple[int, str], bool] = {}
         class_busy: dict[tuple[int, str], bool] = {}
+        class_daily_load: dict[tuple[int, str], int] = defaultdict(int)
+        teacher_daily_load: dict[tuple[int, str], int] = defaultdict(int)
+        class_subject_day_count: dict[tuple[int, str, str], int] = defaultdict(int)
         assignments: list[dict[str, str]] = []
+
+        teacher_unavailable = {t.id: set(t.unavailable_slots) for t in teachers}
+
+        def slot_score(class_id: int, subject_name: str, slot: str) -> tuple[int, int, int]:
+            day = day_of(slot)
+            same_day_subject_count = class_subject_day_count[(class_id, subject_name, day)]
+            daily_load = class_daily_load[(class_id, day)]
+            return (same_day_subject_count, daily_load, slots.index(slot))
 
         def backtrack(index: int) -> bool:
             if index == len(sessions):
@@ -66,16 +112,28 @@ class SchedulerService:
             class_obj, subject_name = sessions[index]
             valid_teachers = teachers_by_subject[subject_name]
 
-            for slot in slots:
+            candidate_slots = sorted(slots, key=lambda s: slot_score(class_obj.id, subject_name, s))
+
+            for slot in candidate_slots:
+                day = day_of(slot)
                 if class_busy.get((class_obj.id, slot)):
+                    continue
+                if class_daily_load[(class_obj.id, day)] >= max_lessons_per_class_per_day:
                     continue
 
                 for teacher in valid_teachers:
+                    if slot in teacher_unavailable[teacher.id]:
+                        continue
                     if teacher_busy.get((teacher.id, slot)):
+                        continue
+                    if teacher_daily_load[(teacher.id, day)] >= max_lessons_per_teacher_per_day:
                         continue
 
                     class_busy[(class_obj.id, slot)] = True
                     teacher_busy[(teacher.id, slot)] = True
+                    class_daily_load[(class_obj.id, day)] += 1
+                    teacher_daily_load[(teacher.id, day)] += 1
+                    class_subject_day_count[(class_obj.id, subject_name, day)] += 1
                     assignments.append(
                         {
                             "slot": slot,
@@ -91,13 +149,20 @@ class SchedulerService:
                     assignments.pop()
                     class_busy.pop((class_obj.id, slot), None)
                     teacher_busy.pop((teacher.id, slot), None)
+                    class_daily_load[(class_obj.id, day)] -= 1
+                    teacher_daily_load[(teacher.id, day)] -= 1
+                    class_subject_day_count[(class_obj.id, subject_name, day)] -= 1
 
             return False
 
         if not backtrack(0):
             return ScheduleResult(
                 False,
-                "Cannot generate schedule: constraints conflict (teacher/class time collisions).",
+                (
+                    "Cannot generate schedule: constraints conflict. "
+                    "Check teacher unavailable slots, daily max lessons per class/teacher, "
+                    "or reduce weekly subject hours."
+                ),
                 {},
             )
 
