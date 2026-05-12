@@ -32,25 +32,31 @@ class MemoryStore:
 
     def load_demo_data(self) -> None:
         self.clear_all()
-        self.add_class("Grade 7A", max_lessons_per_day=5)
-        self.add_class("Grade 8B", max_lessons_per_day=5)
-        self.add_class("Grade 9C", max_lessons_per_day=6)
 
-        self.add_subject("Math", 3)
-        self.add_subject("Science", 2)
-        self.add_subject("English", 2)
-        self.add_subject("History", 1)
+        for class_name in ["6A", "6B", "5A", "5B"]:
+            self.add_class(class_name, max_lessons_per_day=6)
 
-        self.add_teacher("Mr. Khan", ["Math", "Science"], ["Mon-09:00", "Thu-09:00"], max_lessons_per_day=4)
-        self.add_teacher("Ms. Lee", ["English", "History"], ["Tue-08:00"], max_lessons_per_day=4)
-        self.add_teacher("Mrs. Patel", ["Math", "History"], ["Fri-10:00"], max_lessons_per_day=5)
-        self.add_teacher("Mr. Gomez", ["Science", "English"], ["Wed-08:00", "Fri-09:00"], max_lessons_per_day=4)
-
-        for slot in [
-            "Mon-08:00", "Mon-09:00", "Tue-08:00", "Tue-09:00", "Wed-08:00",
-            "Wed-09:00", "Thu-08:00", "Thu-09:00", "Fri-08:00", "Fri-09:00", "Fri-10:00",
+        for subject_name, hours in [
+            ("Mathématiques", 4),
+            ("Français", 4),
+            ("Anglais", 3),
+            ("Histoire", 2),
+            ("Sciences", 3),
+            ("Sport", 2),
         ]:
-            self.add_slot(slot)
+            self.add_subject(subject_name, hours)
+
+        self.add_teacher("Mme Cohen", ["Mathématiques"], ["Mon-08:00"], max_lessons_per_day=5)
+        self.add_teacher("M. Levy", ["Français", "Histoire"], ["Tue-10:00"], max_lessons_per_day=5)
+        self.add_teacher("Mme Benhamou", ["Anglais"], ["Thu-08:00"], max_lessons_per_day=5)
+        self.add_teacher("M. Haddad", ["Sciences"], ["Wed-11:00"], max_lessons_per_day=5)
+        self.add_teacher("Mme Azoulay", ["Sport"], ["Fri-09:00"], max_lessons_per_day=4)
+        self.add_teacher("M. Morel", ["Mathématiques", "Sciences"], ["Mon-11:00"], max_lessons_per_day=5)
+
+        for day in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
+            for hour in ["08:00", "09:00", "10:00", "11:00", "13:00"]:
+                self.add_slot(f"{day}-{hour}")
+
 
     def load_large_demo_data(self) -> dict[str, int]:
         """Charge une démo volumineuse mais cohérente pour stress-tester le moteur."""
