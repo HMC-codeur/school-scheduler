@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import random
 from typing import Dict, List
 
 from backend.models.schemas import Class, Condition, ConditionCreate, ScheduleCell, Subject, Teacher, TimeSettings
@@ -50,6 +51,94 @@ class MemoryStore:
             "Wed-09:00", "Thu-08:00", "Thu-09:00", "Fri-08:00", "Fri-09:00", "Fri-10:00",
         ]:
             self.add_slot(slot)
+
+    def load_large_demo_data(self) -> dict[str, int]:
+        """Charge une démo volumineuse mais cohérente pour stress-tester le moteur."""
+        self.clear_all()
+
+        # 1) Création de créneaux réalistes sur 5 jours (8h -> 16h, pause déjeuner exclue).
+        self.set_time_settings(
+            TimeSettings(
+                day_start_time="08:00",
+                day_end_time="16:00",
+                lesson_duration_minutes=55,
+                break_duration_minutes=10,
+                working_days=["Mon", "Tue", "Wed", "Thu", "Fri"],
+                lunch_break_start="12:00",
+                lunch_break_end="13:00",
+            )
+        )
+
+        # 2) Matières variées (plusieurs dizaines) avec volume horaire modéré pour rester générable.
+        # Important: la somme des heures doit rester <= nb de créneaux hebdo (25 ici),
+        # car le moteur applique ces matières à chaque classe.
+        subject_templates: list[tuple[str, int]] = [
+            ("Mathématiques", 1), ("Français", 1), ("Anglais", 1), ("Histoire", 1), ("Géographie", 1),
+            ("Physique", 1), ("Chimie", 1), ("SVT", 1), ("Technologie", 1), ("Informatique", 1),
+            ("EPS", 1), ("Arts plastiques", 1), ("Musique", 1), ("Espagnol", 1), ("Allemand", 1),
+            ("Philosophie", 1), ("Économie", 1), ("Sciences sociales", 1), ("Latin", 1),
+        ]
+        for name, hours in subject_templates:
+            self.add_subject(name, hours)
+        subject_names = [subject.name for subject in self.subjects]
+
+        # 3) Environ 50 classes, chacune avec un plafond quotidien raisonnable.
+        classes_count = 50
+        for idx in range(1, classes_count + 1):
+            max_daily = 6 if idx % 4 else 7
+            self.add_class(f"Classe {idx:02d}", max_lessons_per_day=max_daily)
+
+        # 4) Environ 90 professeurs, chacun couvre 2 à 3 matières.
+        rng = random.Random(42)  # graine fixe = démo stable/reproductible
+        teachers_count = 90
+        slots_pool = list(self.slots)
+        for idx in range(1, teachers_count + 1):
+            teacher_subjects = rng.sample(subject_names, k=2 if idx % 3 else 3)
+
+            # Indisponibilités réalistes (2 à 4 créneaux), surtout tôt le matin / fin de journée.
+            preferred_unavailable = [slot for slot in slots_pool if slot.endswith("08:00") or slot.endswith("15:30")]
+            unavailable_source = preferred_unavailable if len(preferred_unavailable) >= 4 else slots_pool
+            unavailable = sorted(rng.sample(unavailable_source, k=2 + (idx % 3)))
+
+            max_daily = 5 if idx % 5 else 6
+            self.add_teacher(
+                name=f"Prof {idx:03d}",
+                subjects=teacher_subjects,
+                unavailable_slots=unavailable,
+                max_lessons_per_day=max_daily,
+            )
+
+        # 5) Conditions supplémentaires pour créer de vrais défis (sans bloquer totalement le solveur).
+        morning_friendly_subjects = ["Mathématiques", "Français", "Physique", "SVT"]
+        for subject_name in morning_friendly_subjects:
+            self.add_condition(
+                ConditionCreate(
+                    text=f"Favoriser {subject_name} le matin",
+                    condition_type="subject_morning_preference",
+                    subject_name=subject_name,
+                )
+            )
+
+        # Quelques indisponibilités de classes ciblées pour introduire des contraintes croisées.
+        for class_index in range(1, 11):
+            blocked_slot = slots_pool[class_index % len(slots_pool)]
+            self.add_condition(
+                ConditionCreate(
+                    text=f"Classe {class_index:02d} indisponible sur {blocked_slot}",
+                    condition_type="class_unavailable",
+                    class_name=f"Classe {class_index:02d}",
+                    slot=blocked_slot,
+                )
+            )
+
+        self.schedule = {}
+        return {
+            "classes": len(self.classes),
+            "teachers": len(self.teachers),
+            "subjects": len(self.subjects),
+            "slots": len(self.slots),
+            "conditions": len(self.conditions),
+        }
 
     def add_class(self, name: str, max_lessons_per_day: int = 6) -> Class:
         item = Class(id=self._class_id, name=name, max_lessons_per_day=max_lessons_per_day)
