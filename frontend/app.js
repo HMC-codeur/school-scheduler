@@ -36,19 +36,30 @@ function validateNonEmpty(value, field) {
   }
 }
 
+function resetFormWithDefaults(form) {
+  form.reset();
+  const excluded = (form.dataset.resetExclusions || "").split(",").map((id) => id.trim()).filter(Boolean);
+  excluded.forEach((id) => {
+    if (id === "class-max-lessons") document.getElementById(id).value = 6;
+    if (id === "teacher-max-lessons") document.getElementById(id).value = 6;
+  });
+  if (form.id === "teacher-form") {
+    Array.from(document.getElementById("teacher-unavailable-slots").options).forEach((opt) => (opt.selected = false));
+  }
+  updateUnavailableSlotsSummary();
+}
+
 function bindForms() {
   const bindSubmit = (formId, path, payloadBuilder) => {
     document.getElementById(formId).addEventListener("submit", async (e) => {
       e.preventDefault();
-      const btn = e.target.querySelector("button[type='submit']");
+      const form = e.target;
+      const btn = form.querySelector("button[type='submit']");
       setLoading(btn, true, "Saving...");
       try {
         await api(path, { method: "POST", body: JSON.stringify(payloadBuilder()) });
-        notify("Saved successfully");
-        e.target.reset();
-        document.getElementById("class-max-lessons").value = 6;
-        document.getElementById("teacher-max-lessons").value = 6;
-        updateUnavailableSlotsSummary();
+        notify(form.dataset.successMessage || "Saved successfully");
+        resetFormWithDefaults(form);
         await refresh();
       } catch (error) {
         notify(error.message, "error");
@@ -258,10 +269,16 @@ function renderScheduleTable(slots, classes, schedule) {
     return;
   }
   const head = `<tr><th>Slot</th>${classes.map((c) => `<th>${c}</th>`).join("")}</tr>`;
-  const rows = slots.map((slot) => `<tr><td>${slot}</td>${classes.map((className) => {
-    const cell = schedule?.[slot]?.[className];
-    return `<td>${cell ? `<div class='cell-subject'>${cell.subject}</div><div class='cell-teacher'>${cell.teacher}</div>` : "<span class='empty-cell'>-</span>"}</td>`;
-  }).join("")}</tr>`).join("");
+  const rows = slots
+    .map(
+      (slot) => `<tr><td class="slot-col">${slot}</td>${classes
+        .map((className) => {
+          const cell = schedule?.[slot]?.[className];
+          return `<td>${cell ? `<div class='cell-subject'>${cell.subject}</div><div class='cell-teacher'>${cell.teacher}</div>` : "<span class='empty-cell'>-</span>"}</td>`;
+        })
+        .join("")}</tr>`,
+    )
+    .join("");
   table.innerHTML = head + rows;
 }
 
