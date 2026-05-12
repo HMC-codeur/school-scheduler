@@ -1,14 +1,14 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from backend.models.schemas import Class, Subject, Teacher
+from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
 
 
 @dataclass
 class ScheduleResult:
     success: bool
     message: str
-    schedule: dict[str, dict[str, dict[str, str]]]
+    schedule: dict[str, dict[str, ScheduleCell]]
 
 
 class SchedulerService:
@@ -101,10 +101,10 @@ class SchedulerService:
                 {},
             )
 
-        schedule: dict[str, dict[str, dict[str, str]]] = defaultdict(dict)
+        schedule: dict[str, dict[str, ScheduleCell]] = defaultdict(dict)
         for item in assignments:
-            schedule[item["slot"]][item["class"]] = {
-                "subject": item["subject"],
-                "teacher": item["teacher"],
-            }
+            schedule[item["slot"]][item["class"]] = ScheduleCell(
+                subject=item["subject"],
+                teacher=item["teacher"],
+            )
         return ScheduleResult(True, "Schedule generated successfully.", dict(schedule))

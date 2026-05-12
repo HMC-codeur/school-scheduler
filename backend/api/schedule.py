@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from backend.data.memory_store import store
-from backend.models.schemas import GenerateScheduleResponse
+from backend.models.schemas import GenerateScheduleResponse, ScheduleCell
 from backend.services.scheduler import SchedulerService
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -30,6 +30,6 @@ def clear_all_data() -> dict:
     return {"message": "All data cleared."}
 
 
-@router.get("", response_model=dict)
-def get_schedule() -> dict:
+@router.get("", response_model=dict[str, dict[str, ScheduleCell]])
+def get_schedule() -> dict[str, dict[str, ScheduleCell]]:
     return store.schedule

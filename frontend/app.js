@@ -56,7 +56,7 @@ function bindForms() {
   }));
   bindSubmit("slot-form", "/slots", () => ({ slot: document.getElementById("slot-value").value }));
 
-  document.getElementById("generate-btn").addEventListener("click", () => runAction("generate-btn", "/schedule/generate", "Generating..."));
+  document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
   document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
   document.getElementById("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Clearing..."));
 }
@@ -70,6 +70,23 @@ async function runAction(buttonId, path, loadingLabel) {
     await refresh();
   } catch (error) {
     notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function runGenerateSchedule() {
+  const btn = document.getElementById("generate-btn");
+  setLoading(btn, true, "Generating...");
+  try {
+    const res = await api("/schedule/generate", { method: "POST" });
+    if (res.success === false) {
+      throw new Error(res.message || "Failed to generate schedule");
+    }
+    await refreshScheduleTable();
+    notify(res.message || "Schedule generated successfully");
+  } catch (error) {
+    notify(`Schedule generation failed: ${error.message}`, "error");
   } finally {
     setLoading(btn, false);
   }
@@ -89,6 +106,11 @@ async function refresh() {
   renderScheduleTable(slots, classes.map((c) => c.name), schedule);
 }
 
+async function refreshScheduleTable() {
+  const [classes, slots, schedule] = await Promise.all([api("/classes"), api("/slots"), api("/schedule")]);
+  renderScheduleTable(slots, classes.map((c) => c.name), schedule);
+}
+
 function fillList(id, items) {
   document.getElementById(id).innerHTML = items.map((x) => `<li>${x}</li>`).join("") || "<li>-</li>";
 }
@@ -101,8 +123,8 @@ function renderScheduleTable(slots, classes, schedule) {
   }
   const head = `<tr><th>Slot</th>${classes.map((c) => `<th>${c}</th>`).join("")}</tr>`;
   const rows = slots.map((slot) => `<tr><td>${slot}</td>${classes.map((className) => {
-    const item = schedule?.[slot]?.[className];
-    return `<td>${item ? `<strong>${item.subject}</strong><br/><small>${item.teacher}</small>` : "-"}</td>`;
+    const cell = schedule?.[slot]?.[className];
+    return `<td>${cell ? `${cell.subject} - ${cell.teacher}` : "-"}</td>`;
   }).join("")}</tr>`).join("");
   table.innerHTML = head + rows;
 }

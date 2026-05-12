@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from backend.models.schemas import Class, Subject, Teacher
+from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
 
 
 class MemoryStore:
@@ -9,7 +9,7 @@ class MemoryStore:
         self.teachers: List[Teacher] = []
         self.subjects: List[Subject] = []
         self.slots: List[str] = []
-        self.schedule: Dict[str, Dict[str, str]] = {}
+        self.schedule: Dict[str, Dict[str, ScheduleCell]] = {}
         self._class_id = 1
         self._teacher_id = 1
 
