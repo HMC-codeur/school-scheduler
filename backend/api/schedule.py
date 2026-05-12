@@ -9,7 +9,7 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 @router.post("/generate", response_model=GenerateScheduleResponse)
 def generate_schedule() -> GenerateScheduleResponse:
-    result = SchedulerService.generate(store.classes, store.teachers, store.subjects, store.slots)
+    result = SchedulerService.generate(store.classes, store.teachers, store.subjects, store.slots, store.conditions)
     if not result.success:
         store.schedule = {}
         return GenerateScheduleResponse(success=False, message=result.message, schedule={})

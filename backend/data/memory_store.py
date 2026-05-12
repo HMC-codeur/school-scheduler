@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher, TimeSettings
+from backend.models.schemas import Class, Condition, ConditionCreate, ScheduleCell, Subject, Teacher, TimeSettings
 
 
 class MemoryStore:
@@ -89,8 +89,8 @@ class MemoryStore:
         self.slots.append(slot)
         return slot
 
-    def add_condition(self, text: str) -> Condition:
-        item = Condition(id=self._condition_id, text=text)
+    def add_condition(self, payload: ConditionCreate) -> Condition:
+        item = Condition(id=self._condition_id, **payload.model_dump())
         self._condition_id += 1
         self.conditions.append(item)
         return item

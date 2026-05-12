@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
+from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
 
 
 @dataclass
@@ -24,6 +24,7 @@ class SchedulerService:
         teachers: list[Teacher],
         subjects: list[Subject],
         slots: list[str],
+        conditions: list[Condition] | None = None,
         default_max_lessons_per_class_per_day: int = 6,
         default_max_lessons_per_teacher_per_day: int = 6,
     ) -> ScheduleResult:
@@ -35,6 +36,8 @@ class SchedulerService:
             return ScheduleResult(False, "Cannot generate schedule: no subjects added.", {})
         if not slots:
             return ScheduleResult(False, "Cannot generate schedule: no time slots added.", {})
+
+        conditions = conditions or []
 
         def day_of(slot: str) -> str:
             return slot.split("-", 1)[0]
@@ -83,7 +86,34 @@ class SchedulerService:
                     {},
                 )
 
-        teacher_unavailable = {t.id: set(t.unavailable_slots) for t in teachers}
+        teacher_by_name = {t.name: t for t in teachers}
+        class_by_name = {c.name: c for c in classes}
+
+        forced_teacher_unavailable: dict[int, set[str]] = defaultdict(set)
+        class_unavailable_slots: dict[int, set[str]] = defaultdict(set)
+        morning_subjects: set[str] = set()
+        avoid_repeat_subject_scopes: dict[str, set[int] | None] = {}
+
+        for condition in conditions:
+            if condition.condition_type == "teacher_unavailable" and condition.teacher_name and condition.slot:
+                teacher = teacher_by_name.get(condition.teacher_name)
+                if teacher:
+                    forced_teacher_unavailable[teacher.id].add(condition.slot)
+            elif condition.condition_type == "class_unavailable" and condition.class_name and condition.slot:
+                class_obj = class_by_name.get(condition.class_name)
+                if class_obj:
+                    class_unavailable_slots[class_obj.id].add(condition.slot)
+            elif condition.condition_type == "subject_morning_preference" and condition.subject_name:
+                morning_subjects.add(condition.subject_name)
+            elif condition.condition_type == "avoid_subject_repeat" and condition.subject_name:
+                if condition.class_name:
+                    class_obj = class_by_name.get(condition.class_name)
+                    if class_obj:
+                        avoid_repeat_subject_scopes[condition.subject_name] = {class_obj.id}
+                else:
+                    avoid_repeat_subject_scopes[condition.subject_name] = None
+
+        teacher_unavailable = {t.id: set(t.unavailable_slots) | forced_teacher_unavailable.get(t.id, set()) for t in teachers}
 
         for teacher in teachers:
             available_slots = [slot for slot in slots if slot not in teacher_unavailable[teacher.id]]
@@ -223,14 +253,21 @@ class SchedulerService:
             class_subject_day_count: dict[tuple[int, str, str], int] = defaultdict(int)
             assignments: list[dict[str, str]] = []
 
-            def slot_priority(class_id: int, subject_name: str, slot: str) -> tuple[int, int, int, int]:
+            def slot_priority(class_id: int, subject_name: str, slot: str) -> tuple[int, int, int, int, int]:
                 day = day_of(slot)
                 same_day_subject_count = class_subject_day_count[(class_id, subject_name, day)]
+                if subject_name in avoid_repeat_subject_scopes:
+                    scope = avoid_repeat_subject_scopes[subject_name]
+                    if scope is None or class_id in scope:
+                        same_day_subject_count += 2
                 daily_load = class_daily_load[(class_id, day)]
-                # Encourage middle-of-day first to reduce edge gaps,
-                # then alternate day usage to spread courses.
+                # morning preference: before 12:00 if possible
+                time_part = slot.split("-", 1)[1] if "-" in slot else "23:59"
+                is_afternoon_penalty = 0
+                if subject_name in morning_subjects and time_part >= "12:00":
+                    is_afternoon_penalty = 2
                 middle_distance = abs(slot_order[slot] - (len(slots) // 2))
-                return (same_day_subject_count, daily_load, middle_distance, slot_order[slot])
+                return (same_day_subject_count, is_afternoon_penalty, daily_load, middle_distance, slot_order[slot])
 
             def backtrack(index: int) -> bool:
                 if index == len(ordered_sessions):
@@ -243,6 +280,8 @@ class SchedulerService:
                 for slot in candidate_slots:
                     day = day_of(slot)
                     if class_busy.get((class_obj.id, slot)):
+                        continue
+                    if slot in class_unavailable_slots.get(class_obj.id, set()):
                         continue
 
                     class_daily_limit = max(

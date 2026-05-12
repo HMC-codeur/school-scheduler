@@ -56,7 +56,7 @@
             <p class="hint">Commencez par les matières puis reliez les professeurs aux matières.</p>
             <div class="forms-grid">
               <form id="class-form" class="panel" data-reset-exclusions="class-max-lessons" data-success-message="Classe ajoutée.">
-                <h3>Classes</h3>
+                <h3>Ajouter une classe</h3>
                 <label for="class-name">Nom de la classe</label>
                 <input id="class-name" placeholder="Ex: 6A" required />
                 <label for="class-max-lessons">Max cours/jour</label>
@@ -66,7 +66,7 @@
               </form>
 
               <form id="subject-form" class="panel" data-success-message="Matière ajoutée.">
-                <h3>Matières</h3>
+                <h3>Ajouter une matière</h3>
                 <label for="subject-name">Nom de la matière</label>
                 <input id="subject-name" placeholder="Ex: Mathématiques" required />
                 <label for="subject-hours">Heures/semaine</label>
@@ -76,7 +76,7 @@
               </form>
 
               <form id="teacher-form" class="panel" data-reset-exclusions="teacher-max-lessons" data-success-message="Professeur ajouté.">
-                <h3>Professeurs</h3>
+                <h3>Ajouter un professeur</h3>
                 <label for="teacher-name">Nom du professeur</label>
                 <input id="teacher-name" placeholder="Ex: Mme Dupont" required />
                 <label for="teacher-subjects">Matières (séparées par des virgules)</label>
@@ -102,8 +102,25 @@
           <section class="panel step" id="step-3">
             <h2>Étape 3 · Ajouter des conditions</h2>
             <form id="condition-form" class="inline-form" data-success-message="Condition ajoutée.">
-              <label for="condition-text">Règle de planification</label>
-              <textarea id="condition-text" rows="3" placeholder="Exemple : Éviter deux cours difficiles d'affilée pour une même classe."></textarea>
+              <h3>Ajouter une condition</h3>
+              <label for="condition-type">Type de condition</label>
+              <select id="condition-type" required>
+                <option value="teacher_unavailable">Professeur indisponible sur un créneau</option>
+                <option value="class_unavailable">Classe indisponible sur un créneau</option>
+                <option value="subject_morning_preference">Matière préférée le matin</option>
+                <option value="avoid_subject_repeat">Éviter répétition de matière le même jour</option>
+              </select>
+              <label for="condition-teacher-name" data-condition-field="teacher_unavailable">Professeur</label>
+              <input id="condition-teacher-name" data-condition-field="teacher_unavailable" placeholder="Ex: Mme Dupont" />
+              <label for="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat">Classe (optionnel pour répétition)</label>
+              <input id="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat" placeholder="Ex: 6A" />
+              <label for="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat">Matière</label>
+              <input id="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat" placeholder="Ex: Mathématiques" />
+              <label for="condition-slot" data-condition-field="teacher_unavailable class_unavailable">Créneau</label>
+              <select id="condition-slot" data-condition-field="teacher_unavailable class_unavailable"></select>
+              <label for="condition-text">Description</label>
+              <textarea id="condition-text" rows="2" placeholder="Résumé automatique modifiable." required></textarea>
+              <small class="hint">Sélectionnez un type pour afficher uniquement les champs nécessaires.</small>
               <button type="submit">Ajouter la condition</button>
             </form>
             <ul id="conditions-list"></ul>

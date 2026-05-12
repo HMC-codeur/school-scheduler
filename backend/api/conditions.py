@@ -8,7 +8,7 @@ router = APIRouter(prefix="/conditions", tags=["conditions"])
 
 @router.post("", response_model=Condition)
 def create_condition(payload: ConditionCreate) -> Condition:
-    return store.add_condition(payload.text)
+    return store.add_condition(payload)
 
 
 @router.get("", response_model=list[Condition])
