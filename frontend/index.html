@@ -13,18 +13,18 @@
           <p class="eyebrow">School Scheduler</p>
           <h1>Planification scolaire simplifiée</h1>
         </div>
-        <p class="topbar-help">Configurez vos données en 4 étapes puis générez l'emploi du temps.</p>
+        <p class="topbar-help">Configurez vos données, générez puis consultez le planning en quelques clics.</p>
       </header>
 
       <div class="dashboard-layout">
         <aside class="sidebar panel" aria-label="Navigation des vues">
-          <h2>Vues</h2>
+          <h2>Navigation</h2>
           <nav>
-            <button class="view-nav-btn active" data-view="dashboard-view">Accueil / Dashboard</button>
-            <button class="view-nav-btn" data-view="data-view">Données</button>
-            <button class="view-nav-btn" data-view="slots-view">Horaires</button>
-            <button class="view-nav-btn" data-view="conditions-view">Conditions</button>
-            <button class="view-nav-btn" data-view="results-view">Résultats</button>
+            <button class="view-nav-btn active" data-view="dashboard-view"><span>Dashboard</span><small>Actions rapides</small></button>
+            <button class="view-nav-btn" data-view="data-view"><span>Données</span><small>Classes, matières, profs</small></button>
+            <button class="view-nav-btn" data-view="slots-view"><span>Horaires</span><small>Créneaux & paramètres</small></button>
+            <button class="view-nav-btn" data-view="conditions-view"><span>Conditions</span><small>Contraintes métier</small></button>
+            <button class="view-nav-btn" data-view="results-view"><span>Résultats</span><small>Planning final</small></button>
           </nav>
         </aside>
 
@@ -37,8 +37,8 @@
           </section>
 
           <section id="dashboard-view" class="panel app-view active-view">
-            <h2>Accueil / Dashboard</h2>
-            <p class="hint">Vue d'ensemble rapide des données et actions principales.</p>
+            <div class="section-head"><h2>Dashboard</h2><span class="chip">Vue globale</span></div>
+            <p class="hint">Lancez les actions principales depuis cette vue compacte.</p>
             <section class="actions">
               <button id="load-demo-btn">Charger des données démo</button>
               <button id="load-large-demo-btn">Charger une grosse démo</button>
@@ -51,42 +51,31 @@
 
           <section id="data-view" class="app-view">
             <section class="panel step" id="step-2">
-              <h2>Données</h2>
+              <div class="section-head"><h2>Données</h2><span class="chip">Étape 1</span></div>
               <div class="forms-grid">
                 <form id="class-form" class="panel" data-reset-exclusions="class-max-lessons" data-success-message="Classe ajoutée.">
                   <h3>Ajouter une classe</h3>
-                  <label for="class-name">Nom de la classe</label>
-                  <input id="class-name" placeholder="Ex: 6A" required />
-                  <label for="class-max-lessons">Max cours/jour</label>
-                  <input id="class-max-lessons" type="number" min="1" value="6" required />
+                  <label for="class-name">Nom de la classe</label><input id="class-name" placeholder="Ex: 6A" required />
+                  <label for="class-max-lessons">Max cours/jour</label><input id="class-max-lessons" type="number" min="1" value="6" required />
                   <button type="submit">Ajouter la classe</button>
                 </form>
-
                 <form id="subject-form" class="panel" data-success-message="Matière ajoutée.">
                   <h3>Ajouter une matière</h3>
-                  <label for="subject-name">Nom de la matière</label>
-                  <input id="subject-name" placeholder="Ex: Mathématiques" required />
-                  <label for="subject-hours">Heures/semaine</label>
-                  <input id="subject-hours" type="number" min="1" placeholder="Ex: 4" required />
+                  <label for="subject-name">Nom de la matière</label><input id="subject-name" placeholder="Ex: Mathématiques" required />
+                  <label for="subject-hours">Heures/semaine</label><input id="subject-hours" type="number" min="1" placeholder="Ex: 4" required />
                   <button type="submit">Ajouter la matière</button>
                 </form>
-
                 <form id="teacher-form" class="panel" data-reset-exclusions="teacher-max-lessons" data-success-message="Professeur ajouté.">
                   <h3>Ajouter un professeur</h3>
-                  <label for="teacher-name">Nom du professeur</label>
-                  <input id="teacher-name" placeholder="Ex: Mme Dupont" required />
-                  <label for="teacher-subjects">Matières (séparées par des virgules)</label>
-                  <input id="teacher-subjects" placeholder="Ex: Mathématiques,Physique" required />
-                  <label for="teacher-max-lessons">Max cours/jour</label>
-                  <input id="teacher-max-lessons" type="number" min="1" value="6" required />
-                  <label for="teacher-unavailable-slots">Créneaux indisponibles</label>
-                  <select id="teacher-unavailable-slots" multiple size="4"></select>
+                  <label for="teacher-name">Nom du professeur</label><input id="teacher-name" placeholder="Ex: Mme Dupont" required />
+                  <label for="teacher-subjects">Matières (virgules)</label><input id="teacher-subjects" placeholder="Ex: Mathématiques,Physique" required />
+                  <label for="teacher-max-lessons">Max cours/jour</label><input id="teacher-max-lessons" type="number" min="1" value="6" required />
+                  <label for="teacher-unavailable-slots">Créneaux indisponibles</label><select id="teacher-unavailable-slots" multiple size="4"></select>
                   <small id="teacher-unavailable-selected" class="hint">Aucun créneau sélectionné.</small>
                   <button type="submit">Ajouter le professeur</button>
                 </form>
               </div>
             </section>
-
             <section class="tables-grid">
               <div class="panel data-card"><h3>Classes existantes</h3><ul id="classes-list"></ul></div>
               <div class="panel data-card"><h3>Matières existantes</h3><ul id="subjects-list"></ul></div>
@@ -96,23 +85,22 @@
 
           <section id="slots-view" class="app-view">
             <section class="panel step" id="step-1">
-              <h2>Horaires</h2>
+              <div class="section-head"><h2>Horaires</h2><span class="chip">Étape 2</span></div>
               <form id="time-settings-form" class="forms-grid compact-grid" data-success-message="Créneaux générés avec succès.">
-                <label for="day-start-time">Début de journée</label><input id="day-start-time" type="time" required />
-                <label for="day-end-time">Fin de journée</label><input id="day-end-time" type="time" required />
-                <label for="lesson-duration-minutes">Durée d'un cours (min)</label><input id="lesson-duration-minutes" type="number" min="1" placeholder="Ex: 55" required />
-                <label for="break-duration-minutes">Durée pause (min)</label><input id="break-duration-minutes" type="number" min="0" placeholder="Ex: 10" required />
-                <label for="working-days">Jours ouvrés</label><input id="working-days" placeholder="Ex: Mon,Tue,Wed,Thu,Fri" required />
-                <label for="lunch-break-start">Début pause déjeuner (optionnel)</label><input id="lunch-break-start" type="time" />
-                <label for="lunch-break-end">Fin pause déjeuner (optionnel)</label><input id="lunch-break-end" type="time" />
+                <label for="day-start-time">Début</label><input id="day-start-time" type="time" required />
+                <label for="day-end-time">Fin</label><input id="day-end-time" type="time" required />
+                <label for="lesson-duration-minutes">Durée cours (min)</label><input id="lesson-duration-minutes" type="number" min="1" placeholder="55" required />
+                <label for="break-duration-minutes">Pause (min)</label><input id="break-duration-minutes" type="number" min="0" placeholder="10" required />
+                <label for="working-days">Jours ouvrés</label><input id="working-days" placeholder="Mon,Tue,Wed,Thu,Fri" required />
+                <label for="lunch-break-start">Début déjeuner</label><input id="lunch-break-start" type="time" />
+                <label for="lunch-break-end">Fin déjeuner</label><input id="lunch-break-end" type="time" />
                 <button type="submit" class="primary">Générer les créneaux</button>
               </form>
             </section>
-            <section class="panel">
+            <section class="panel two-col">
               <form id="slot-form" class="panel" data-success-message="Créneau ajouté.">
-                <h3>Créneaux manuels</h3>
-                <label for="slot-value">Créneau (format libre)</label>
-                <input id="slot-value" placeholder="Ex: Mon-08:00" required />
+                <h3>Créneau manuel</h3>
+                <label for="slot-value">Créneau</label><input id="slot-value" placeholder="Ex: Mon-08:00" required />
                 <button type="submit">Ajouter le créneau</button>
               </form>
               <div class="panel data-card"><h3>Créneaux existants</h3><ul id="slots-list"></ul></div>
@@ -120,7 +108,7 @@
           </section>
 
           <section id="conditions-view" class="panel app-view">
-            <h2>Conditions</h2>
+            <div class="section-head"><h2>Conditions</h2><span class="chip">Étape 3</span></div>
             <form id="condition-form" class="inline-form" data-success-message="Condition ajoutée.">
               <label for="condition-type">Type de condition</label>
               <select id="condition-type" required>
@@ -145,13 +133,12 @@
           </section>
 
           <section id="results-view" class="panel app-view">
-            <h2>Résultats</h2>
+            <div class="section-head"><h2>Résultats</h2><span class="chip">Étape 4</span></div>
             <div class="schedule-controls" aria-label="Filtres d'affichage du planning">
-              <label for="schedule-view-mode">Mode d'affichage</label>
-              <select id="schedule-view-mode"><option value="class">Vue classe</option><option value="teacher">Vue professeur</option></select>
-              <label for="schedule-class-filter">Choisir une classe</label><select id="schedule-class-filter"><option value="">Choisir une classe</option></select>
-              <label for="schedule-teacher-filter">Choisir un professeur</label><select id="schedule-teacher-filter"><option value="">Choisir un professeur</option></select>
-              <label for="schedule-search">Recherche (classe ou professeur)</label><input id="schedule-search" type="search" placeholder="Ex: 6A ou Mme Dupont" />
+              <label for="schedule-view-mode">Mode</label><select id="schedule-view-mode"><option value="class">Vue classe</option><option value="teacher">Vue professeur</option></select>
+              <label for="schedule-class-filter">Classe</label><select id="schedule-class-filter"><option value="">Choisir une classe</option></select>
+              <label for="schedule-teacher-filter">Professeur</label><select id="schedule-teacher-filter"><option value="">Choisir un professeur</option></select>
+              <label for="schedule-search">Recherche</label><input id="schedule-search" type="search" placeholder="6A ou Mme Dupont" />
             </div>
             <p id="schedule-empty-message" class="hint schedule-empty-message">Sélectionnez une classe ou un professeur.</p>
             <article class="quality-card quality-unknown" id="quality-card">
