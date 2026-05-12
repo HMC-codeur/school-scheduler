@@ -149,6 +149,13 @@ function populateScheduleFilters() {
   const teacherSelect = el("schedule-teacher-filter");
   classSelect.innerHTML = `<option value="">Choisir une classe</option>${scheduleState.classes.map((name) => `<option value="${name}">${name}</option>`).join("")}`;
   teacherSelect.innerHTML = `<option value="">Choisir un professeur</option>${scheduleState.teachers.map((name) => `<option value="${name}">${name}</option>`).join("")}`;
+
+  const hasScheduleData = Boolean(scheduleState.schedule && Object.keys(scheduleState.schedule).length);
+  if (hasScheduleData) {
+    if (scheduleState.viewMode === "class" && !scheduleState.selectedClass && scheduleState.classes.length) scheduleState.selectedClass = scheduleState.classes[0];
+    if (scheduleState.viewMode === "teacher" && !scheduleState.selectedTeacher && scheduleState.teachers.length) scheduleState.selectedTeacher = scheduleState.teachers[0];
+  }
+
   if (!scheduleState.classes.includes(scheduleState.selectedClass)) scheduleState.selectedClass = "";
   if (!scheduleState.teachers.includes(scheduleState.selectedTeacher)) scheduleState.selectedTeacher = "";
   classSelect.value = scheduleState.selectedClass;
@@ -163,6 +170,7 @@ function bindViewNavigation() {
   const activateView = (viewId) => {
     views.forEach((view) => view.classList.toggle("active-view", view.id === viewId));
     navButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === viewId));
+    if (viewId === "results-view") renderScheduleTableFromState();
   };
   navButtons.forEach((btn) => btn.addEventListener("click", () => activateView(btn.dataset.view)));
 }
