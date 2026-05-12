@@ -1,6 +1,4 @@
-from typing import Literal
-
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class ClassCreate(BaseModel):
@@ -8,110 +6,58 @@ class ClassCreate(BaseModel):
     max_lessons_per_day: int = Field(default=6, ge=1)
 
 
-class Class(BaseModel):
+class Class(ClassCreate):
     id: int
-    name: str
-    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class TeacherCreate(BaseModel):
     name: str = Field(min_length=1)
-    subjects: list[str] = Field(default_factory=list)
-    unavailable_slots: list[str] = Field(default_factory=list)
+    subject_ids: list[int] = Field(default_factory=list)
+    unavailable_slot_ids: list[int] = Field(default_factory=list)
     max_lessons_per_day: int = Field(default=6, ge=1)
 
 
-class Teacher(BaseModel):
+class Teacher(TeacherCreate):
     id: int
-    name: str
-    subjects: list[str]
-    unavailable_slots: list[str] = Field(default_factory=list)
-    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class SubjectCreate(BaseModel):
     name: str = Field(min_length=1)
-    hours_per_week: int = Field(gt=0)
+    weekly_hours: int = Field(gt=0)
+    allowed_teacher_ids: list[int] = Field(default_factory=list)
+    target_class_ids: list[int] = Field(default_factory=list)
 
 
-class Subject(BaseModel):
-    name: str
-    hours_per_week: int
-
-
-class SlotCreate(BaseModel):
-    slot: str = Field(min_length=1)
-
-
-class ConditionCreate(BaseModel):
-    text: str = Field(min_length=1)
-    condition_type: Literal[
-        "teacher_unavailable",
-        "class_unavailable",
-        "subject_morning_preference",
-        "avoid_subject_repeat",
-    ] = "teacher_unavailable"
-    teacher_name: str | None = None
-    class_name: str | None = None
-    subject_name: str | None = None
-    slot: str | None = None
-
-    @model_validator(mode="after")
-    def validate_by_type(self) -> "ConditionCreate":
-        if self.condition_type == "teacher_unavailable":
-            if not self.teacher_name or not self.slot:
-                raise ValueError("teacher_name and slot are required for teacher_unavailable")
-        elif self.condition_type == "class_unavailable":
-            if not self.class_name or not self.slot:
-                raise ValueError("class_name and slot are required for class_unavailable")
-        elif self.condition_type == "subject_morning_preference":
-            if not self.subject_name:
-                raise ValueError("subject_name is required for subject_morning_preference")
-        elif self.condition_type == "avoid_subject_repeat":
-            if not self.subject_name:
-                raise ValueError("subject_name is required for avoid_subject_repeat")
-        return self
-
-
-class Condition(ConditionCreate):
+class Subject(SubjectCreate):
     id: int
 
 
-class TimeSettings(BaseModel):
-    day_start_time: str = Field(pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
-    day_end_time: str = Field(pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
-    lesson_duration_minutes: int = Field(gt=0)
-    break_duration_minutes: int = Field(ge=0)
-    working_days: list[str] = Field(min_length=1)
-    lunch_break_start: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
-    lunch_break_end: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+class SlotCreate(BaseModel):
+    label: str = Field(min_length=1)
 
 
-class SessionRequirement(BaseModel):
+class Slot(SlotCreate):
+    id: int
+
+
+class ScheduleSession(BaseModel):
+    session_id: int
     class_id: int
-    class_name: str
-    subject: str
+    teacher_id: int
+    subject_id: int
+    slot_id: int
 
 
-class ScheduledEntry(BaseModel):
-    slot: str
-    class_name: str
-    subject: str
-    teacher_name: str
-
-
-class ScheduleCell(BaseModel):
-    subject: str
-    teacher: str
+class ScheduleUpdate(BaseModel):
+    class_id: int
+    teacher_id: int
+    subject_id: int
+    slot_id: int
 
 
 class GenerateScheduleResponse(BaseModel):
     success: bool
     message: str
-    schedule: dict[str, dict[str, ScheduleCell]]
-    quality_score: int | None = None
-    conflicts_count: int | None = None
-    gaps_count: int | None = None
-    repeated_subjects_count: int | None = None
-    long_sequences_count: int | None = None
-    load_balance_status: str | None = None
+    schedule: list[ScheduleSession]
+    stats: dict = Field(default_factory=dict)
+    details: list[str] = Field(default_factory=list)
