@@ -48,7 +48,12 @@ class ScheduledEntry(BaseModel):
     teacher_name: str
 
 
+class ScheduleCell(BaseModel):
+    subject: str
+    teacher: str
+
+
 class GenerateScheduleResponse(BaseModel):
     success: bool
     message: str
-    schedule: dict[str, dict[str, str]]
+    schedule: dict[str, dict[str, ScheduleCell]]

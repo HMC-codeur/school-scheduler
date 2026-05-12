@@ -123,8 +123,8 @@ function renderScheduleTable(slots, classes, schedule) {
   }
   const head = `<tr><th>Slot</th>${classes.map((c) => `<th>${c}</th>`).join("")}</tr>`;
   const rows = slots.map((slot) => `<tr><td>${slot}</td>${classes.map((className) => {
-    const item = schedule?.[slot]?.[className];
-    return `<td>${item ? `<strong>${item.subject}</strong><br/><small>${item.teacher}</small>` : "-"}</td>`;
+    const cell = schedule?.[slot]?.[className];
+    return `<td>${cell ? `${cell.subject} - ${cell.teacher}` : "-"}</td>`;
   }).join("")}</tr>`).join("");
   table.innerHTML = head + rows;
 }
