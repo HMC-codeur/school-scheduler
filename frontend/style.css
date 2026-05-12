@@ -19,6 +19,7 @@ button:disabled { opacity:0.6; cursor:not-allowed; }
 .actions { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:14px; }
 ul { padding-left:18px; margin:0; }
 .inline-form { display: grid; gap: 8px; margin-bottom: 10px; }
+.compact-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 0; }
 .conditions-item { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px; }
 .conditions-item button { width:auto; margin-top:0; padding:6px 10px; }
 .table-wrap { overflow:auto; }

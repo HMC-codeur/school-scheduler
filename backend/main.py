@@ -8,6 +8,7 @@ from backend.api.schedule import router as schedule_router
 from backend.api.slots import router as slots_router
 from backend.api.subjects import router as subjects_router
 from backend.api.teachers import router as teachers_router
+from backend.api.time_settings import router as time_settings_router
 
 app = FastAPI(title="AI School Timetable Generator", version="0.1.0")
 
@@ -25,5 +26,6 @@ app.include_router(teachers_router)
 app.include_router(subjects_router)
 app.include_router(slots_router)
 app.include_router(schedule_router)
+app.include_router(time_settings_router)
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
