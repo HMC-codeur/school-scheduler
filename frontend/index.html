@@ -3,99 +3,113 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>School Scheduler</title>
+    <title>School Scheduler Dashboard</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main class="container">
-      <header class="header">
-        <h1>School Scheduler</h1>
-        <p>Create, validate, and generate a weekly school schedule.</p>
-      </header>
+    <div class="dashboard-layout">
+      <aside class="sidebar panel">
+        <h2>School SaaS</h2>
+        <nav>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#classes-section">Classes</a>
+          <a href="#teachers-section">Teachers</a>
+          <a href="#subjects-section">Subjects</a>
+          <a href="#slots-section">Time slots</a>
+          <a href="#schedule-section">Schedule</a>
+        </nav>
+      </aside>
 
-      <section class="cards" id="stats-cards">
-        <div class="card"><span>Classes</span><strong id="count-classes">0</strong></div>
-        <div class="card"><span>Teachers</span><strong id="count-teachers">0</strong></div>
-        <div class="card"><span>Subjects</span><strong id="count-subjects">0</strong></div>
-        <div class="card"><span>Slots</span><strong id="count-slots">0</strong></div>
-      </section>
+      <main class="main-content">
+        <header class="header panel" id="dashboard">
+          <h1>Bonjour utilisateur, comment allez-vous ?</h1>
+          <p>Create, validate, and generate a weekly school schedule.</p>
+        </header>
 
-      <section class="forms-grid">
-        <form id="class-form" class="panel">
-          <h3>Add Class</h3>
-          <input id="class-name" placeholder="Class name" required />
-          <input id="class-max-lessons" type="number" min="1" value="6" required />
-          <small class="hint">Max lessons/day for this class</small>
-          <button type="submit">Add Class</button>
-        </form>
-        <form id="subject-form" class="panel">
-          <h3>Add Subject</h3>
-          <input id="subject-name" placeholder="Subject name" required />
-          <input id="subject-hours" type="number" min="1" placeholder="Hours/week" required />
-          <button type="submit">Add Subject</button>
-        </form>
-        <form id="teacher-form" class="panel">
-          <h3>Add Teacher</h3>
-          <input id="teacher-name" placeholder="Teacher name" required />
-          <input id="teacher-subjects" placeholder="Subjects (comma-separated)" required />
-          <input id="teacher-max-lessons" type="number" min="1" value="6" required />
-          <small class="hint">Max lessons/day for this teacher</small>
-          <label for="teacher-unavailable-slots">Unavailable slots</label>
-          <select id="teacher-unavailable-slots" multiple size="4"></select>
-          <small id="teacher-unavailable-selected" class="hint">No unavailable slots selected.</small>
-          <button type="submit">Add Teacher</button>
-        </form>
-        <form id="slot-form" class="panel">
-          <h3>Add Slot</h3>
-          <input id="slot-value" placeholder="Mon-08:00" required />
-          <button type="submit">Add Slot</button>
-        </form>
-      </section>
+        <section class="cards" id="stats-cards">
+          <div class="card"><span>Classes</span><strong id="count-classes">0</strong></div>
+          <div class="card"><span>Teachers</span><strong id="count-teachers">0</strong></div>
+          <div class="card"><span>Subjects</span><strong id="count-subjects">0</strong></div>
+          <div class="card"><span>Slots</span><strong id="count-slots">0</strong></div>
+        </section>
 
-      <section class="actions panel">
-        <button id="load-demo-btn">Load Demo Data</button>
-        <button id="clear-btn" class="danger">Clear All Data</button>
-        <button id="generate-btn" class="primary">Generate Schedule</button>
-      </section>
+        <section class="forms-grid">
+          <form id="class-form" class="panel" data-reset-exclusions="class-max-lessons" data-success-message="Class added successfully.">
+            <h3 id="classes-section">Add Class</h3>
+            <input id="class-name" placeholder="Class name" required />
+            <input id="class-max-lessons" type="number" min="1" value="6" required />
+            <small class="hint">Max lessons/day for this class</small>
+            <button type="submit">Add Class</button>
+          </form>
+          <form id="subject-form" class="panel" data-success-message="Subject added successfully.">
+            <h3 id="subjects-section">Add Subject</h3>
+            <input id="subject-name" placeholder="Subject name" required />
+            <input id="subject-hours" type="number" min="1" placeholder="Hours/week" required />
+            <button type="submit">Add Subject</button>
+          </form>
+          <form id="teacher-form" class="panel" data-reset-exclusions="teacher-max-lessons" data-success-message="Teacher added successfully.">
+            <h3 id="teachers-section">Add Teacher</h3>
+            <input id="teacher-name" placeholder="Teacher name" required />
+            <input id="teacher-subjects" placeholder="Subjects (comma-separated)" required />
+            <input id="teacher-max-lessons" type="number" min="1" value="6" required />
+            <small class="hint">Max lessons/day for this teacher</small>
+            <label for="teacher-unavailable-slots">Unavailable slots</label>
+            <select id="teacher-unavailable-slots" multiple size="4"></select>
+            <small id="teacher-unavailable-selected" class="hint">No unavailable slots selected.</small>
+            <button type="submit">Add Teacher</button>
+          </form>
+          <form id="slot-form" class="panel" data-success-message="Time slot added successfully.">
+            <h3 id="slots-section">Add Slot</h3>
+            <input id="slot-value" placeholder="Mon-08:00" required />
+            <button type="submit">Add Slot</button>
+          </form>
+        </section>
 
-      <section class="panel">
-        <h3>Paramètres horaires</h3>
-        <p class="hint">Définissez la structure de votre journée scolaire, puis générez automatiquement les créneaux.</p>
-        <form id="time-settings-form" class="forms-grid compact-grid">
-          <input id="day-start-time" type="time" required />
-          <input id="day-end-time" type="time" required />
-          <input id="lesson-duration-minutes" type="number" min="1" placeholder="Durée cours (min)" required />
-          <input id="break-duration-minutes" type="number" min="0" placeholder="Durée pause (min)" required />
-          <input id="working-days" placeholder="Jours ouvrés (ex: Mon,Tue,Wed,Thu,Fri)" required />
-          <input id="lunch-break-start" type="time" />
-          <input id="lunch-break-end" type="time" />
-          <button type="submit" class="primary">Générer les créneaux</button>
-        </form>
-      </section>
+        <section class="actions panel">
+          <button id="load-demo-btn">Load Demo Data</button>
+          <button id="clear-btn" class="danger">Clear All Data</button>
+          <button id="generate-btn" class="primary">Generate Schedule</button>
+        </section>
 
-      <section class="panel">
-        <h3>Conditions</h3>
-        <form id="condition-form" class="inline-form">
-          <textarea id="condition-text" rows="3" placeholder="Exemple : Éviter deux cours difficiles d'affilée pour une même classe."></textarea>
-          <button type="submit">Ajouter condition</button>
-        </form>
-        <ul id="conditions-list"></ul>
-      </section>
+        <section class="panel">
+          <h3>Paramètres horaires</h3>
+          <p class="hint">Définissez la structure de votre journée scolaire, puis générez automatiquement les créneaux.</p>
+          <form id="time-settings-form" class="forms-grid compact-grid" data-success-message="Time slots generated successfully.">
+            <input id="day-start-time" type="time" required />
+            <input id="day-end-time" type="time" required />
+            <input id="lesson-duration-minutes" type="number" min="1" placeholder="Durée cours (min)" required />
+            <input id="break-duration-minutes" type="number" min="0" placeholder="Durée pause (min)" required />
+            <input id="working-days" placeholder="Jours ouvrés (ex: Mon,Tue,Wed,Thu,Fri)" required />
+            <input id="lunch-break-start" type="time" />
+            <input id="lunch-break-end" type="time" />
+            <button type="submit" class="primary">Générer les créneaux</button>
+          </form>
+        </section>
 
-      <div id="toast" class="toast hidden"></div>
+        <section class="panel">
+          <h3>Conditions</h3>
+          <form id="condition-form" class="inline-form" data-success-message="Condition added successfully.">
+            <textarea id="condition-text" rows="3" placeholder="Exemple : Éviter deux cours difficiles d'affilée pour une même classe."></textarea>
+            <button type="submit">Ajouter condition</button>
+          </form>
+          <ul id="conditions-list"></ul>
+        </section>
 
-      <section class="tables-grid">
-        <div class="panel"><h3>Classes</h3><ul id="classes-list"></ul></div>
-        <div class="panel"><h3>Subjects</h3><ul id="subjects-list"></ul></div>
-        <div class="panel"><h3>Teachers</h3><ul id="teachers-list"></ul></div>
-        <div class="panel"><h3>Slots</h3><ul id="slots-list"></ul></div>
-      </section>
+        <section class="tables-grid">
+          <div class="panel data-card"><h3>Existing classes</h3><ul id="classes-list"></ul></div>
+          <div class="panel data-card"><h3>Existing subjects</h3><ul id="subjects-list"></ul></div>
+          <div class="panel data-card"><h3>Existing teachers</h3><ul id="teachers-list"></ul></div>
+          <div class="panel data-card"><h3>Existing time slots</h3><ul id="slots-list"></ul></div>
+        </section>
 
-      <section class="panel">
-        <h2>Generated Schedule</h2>
-        <div class="table-wrap"><table id="schedule-table"></table></div>
-      </section>
-    </main>
+        <section class="panel" id="schedule-section">
+          <h2>Generated Schedule</h2>
+          <div class="table-wrap"><table id="schedule-table"></table></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
     <script src="app.js"></script>
   </body>
 </html>
