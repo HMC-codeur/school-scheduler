@@ -17,14 +17,14 @@
       </header>
 
       <div class="dashboard-layout">
-        <aside class="sidebar panel" aria-label="Navigation des étapes">
-          <h2>Étapes</h2>
+        <aside class="sidebar panel" aria-label="Navigation des vues">
+          <h2>Vues</h2>
           <nav>
-            <a href="#step-1">1. Horaires</a>
-            <a href="#step-2">2. Données</a>
-            <a href="#step-3">3. Conditions</a>
-            <a href="#step-4">4. Génération</a>
-            <a href="#schedule-section">Résultat</a>
+            <button class="view-nav-btn active" data-view="dashboard-view">Accueil / Dashboard</button>
+            <button class="view-nav-btn" data-view="data-view">Données</button>
+            <button class="view-nav-btn" data-view="slots-view">Horaires</button>
+            <button class="view-nav-btn" data-view="conditions-view">Conditions</button>
+            <button class="view-nav-btn" data-view="results-view">Résultats</button>
           </nav>
         </aside>
 
@@ -36,73 +36,99 @@
             <article class="card"><span>Créneaux</span><strong id="count-slots">0</strong></article>
           </section>
 
-          <section class="panel step" id="step-1">
-            <h2>Étape 1 · Configurer les horaires</h2>
-            <p class="hint">Définissez la journée scolaire, puis générez automatiquement les créneaux.</p>
-            <form id="time-settings-form" class="forms-grid compact-grid" data-success-message="Créneaux générés avec succès.">
-              <label for="day-start-time">Début de journée</label><input id="day-start-time" type="time" required />
-              <label for="day-end-time">Fin de journée</label><input id="day-end-time" type="time" required />
-              <label for="lesson-duration-minutes">Durée d'un cours (min)</label><input id="lesson-duration-minutes" type="number" min="1" placeholder="Ex: 55" required />
-              <label for="break-duration-minutes">Durée pause (min)</label><input id="break-duration-minutes" type="number" min="0" placeholder="Ex: 10" required />
-              <label for="working-days">Jours ouvrés</label><input id="working-days" placeholder="Ex: Mon,Tue,Wed,Thu,Fri" required />
-              <label for="lunch-break-start">Début pause déjeuner (optionnel)</label><input id="lunch-break-start" type="time" />
-              <label for="lunch-break-end">Fin pause déjeuner (optionnel)</label><input id="lunch-break-end" type="time" />
-              <button type="submit" class="primary">Générer les créneaux</button>
-            </form>
+          <section id="dashboard-view" class="panel app-view active-view">
+            <div class="progress">
+              <span id="progress-classes" class="badge">Classes: 0</span>
+              <span id="progress-teachers" class="badge">Professeurs: 0</span>
+              <span id="progress-subjects" class="badge">Matières: 0</span>
+              <span id="progress-slots" class="badge">Créneaux: 0</span>
+              <span id="progress-conditions" class="badge">Conditions: 0</span>
+            </div>
+            <h2>Accueil / Dashboard</h2>
+            <p class="hint">Vue d'ensemble rapide des données et actions principales.</p>
+            <section class="actions">
+              <button id="load-demo-btn">Charger des données démo</button>
+              <button id="load-large-demo-btn">Charger une grosse démo</button>
+              <button id="clear-btn" class="danger">Vider toutes les données</button>
+              <button id="generate-btn" class="primary">Générer l'emploi du temps</button>
+            </section>
+            <p id="demo-summary" class="hint">Aucune démo volumineuse chargée.</p>
+            <p id="generation-status" class="generation-status">Aucune génération lancée pour le moment.</p>
           </section>
 
-          <section class="step" id="step-2">
-            <h2>Étape 2 · Ajouter classes, professeurs et matières</h2>
-            <p class="hint">Commencez par les matières puis reliez les professeurs aux matières.</p>
-            <div class="forms-grid">
-              <form id="class-form" class="panel" data-reset-exclusions="class-max-lessons" data-success-message="Classe ajoutée.">
-                <h3>Ajouter une classe</h3>
-                <label for="class-name">Nom de la classe</label>
-                <input id="class-name" placeholder="Ex: 6A" required />
-                <label for="class-max-lessons">Max cours/jour</label>
-                <input id="class-max-lessons" type="number" min="1" value="6" required />
-                <small class="hint">Limite quotidienne pour éviter les journées surchargées.</small>
-                <button type="submit">Ajouter la classe</button>
-              </form>
+          <section id="data-view" class="app-view">
+            <section class="panel step" id="step-2">
+              <h2>Données</h2>
+              <div class="forms-grid">
+                <form id="class-form" class="panel" data-reset-exclusions="class-max-lessons" data-success-message="Classe ajoutée.">
+                  <h3>Ajouter une classe</h3>
+                  <label for="class-name">Nom de la classe</label>
+                  <input id="class-name" placeholder="Ex: 6A" required />
+                  <label for="class-max-lessons">Max cours/jour</label>
+                  <input id="class-max-lessons" type="number" min="1" value="6" required />
+                  <button type="submit">Ajouter la classe</button>
+                </form>
 
-              <form id="subject-form" class="panel" data-success-message="Matière ajoutée.">
-                <h3>Ajouter une matière</h3>
-                <label for="subject-name">Nom de la matière</label>
-                <input id="subject-name" placeholder="Ex: Mathématiques" required />
-                <label for="subject-hours">Heures/semaine</label>
-                <input id="subject-hours" type="number" min="1" placeholder="Ex: 4" required />
-                <small class="hint">Nombre total d'heures à placer sur la semaine.</small>
-                <button type="submit">Ajouter la matière</button>
-              </form>
+                <form id="subject-form" class="panel" data-success-message="Matière ajoutée.">
+                  <h3>Ajouter une matière</h3>
+                  <label for="subject-name">Nom de la matière</label>
+                  <input id="subject-name" placeholder="Ex: Mathématiques" required />
+                  <label for="subject-hours">Heures/semaine</label>
+                  <input id="subject-hours" type="number" min="1" placeholder="Ex: 4" required />
+                  <button type="submit">Ajouter la matière</button>
+                </form>
 
-              <form id="teacher-form" class="panel" data-reset-exclusions="teacher-max-lessons" data-success-message="Professeur ajouté.">
-                <h3>Ajouter un professeur</h3>
-                <label for="teacher-name">Nom du professeur</label>
-                <input id="teacher-name" placeholder="Ex: Mme Dupont" required />
-                <label for="teacher-subjects">Matières (séparées par des virgules)</label>
-                <input id="teacher-subjects" placeholder="Ex: Mathématiques,Physique" required />
-                <label for="teacher-max-lessons">Max cours/jour</label>
-                <input id="teacher-max-lessons" type="number" min="1" value="6" required />
-                <label for="teacher-unavailable-slots">Créneaux indisponibles</label>
-                <select id="teacher-unavailable-slots" multiple size="4"></select>
-                <small id="teacher-unavailable-selected" class="hint">Aucun créneau sélectionné.</small>
-                <button type="submit">Ajouter le professeur</button>
-              </form>
+                <form id="teacher-form" class="panel" data-reset-exclusions="teacher-max-lessons" data-success-message="Professeur ajouté.">
+                  <h3>Ajouter un professeur</h3>
+                  <label for="teacher-name">Nom du professeur</label>
+                  <input id="teacher-name" placeholder="Ex: Mme Dupont" required />
+                  <label for="teacher-subjects">Matières (séparées par des virgules)</label>
+                  <input id="teacher-subjects" placeholder="Ex: Mathématiques,Physique" required />
+                  <label for="teacher-max-lessons">Max cours/jour</label>
+                  <input id="teacher-max-lessons" type="number" min="1" value="6" required />
+                  <label for="teacher-unavailable-slots">Créneaux indisponibles</label>
+                  <select id="teacher-unavailable-slots" multiple size="4"></select>
+                  <small id="teacher-unavailable-selected" class="hint">Aucun créneau sélectionné.</small>
+                  <button type="submit">Ajouter le professeur</button>
+                </form>
+              </div>
+            </section>
 
+            <section class="tables-grid">
+              <div class="panel data-card"><h3>Classes existantes</h3><ul id="classes-list"></ul></div>
+              <div class="panel data-card"><h3>Matières existantes</h3><ul id="subjects-list"></ul></div>
+              <div class="panel data-card"><h3>Professeurs existants</h3><ul id="teachers-list"></ul></div>
+            </section>
+          </section>
+
+          <section id="slots-view" class="app-view">
+            <section class="panel step" id="step-1">
+              <h2>Horaires</h2>
+              <form id="time-settings-form" class="forms-grid compact-grid" data-success-message="Créneaux générés avec succès.">
+                <label for="day-start-time">Début de journée</label><input id="day-start-time" type="time" required />
+                <label for="day-end-time">Fin de journée</label><input id="day-end-time" type="time" required />
+                <label for="lesson-duration-minutes">Durée d'un cours (min)</label><input id="lesson-duration-minutes" type="number" min="1" placeholder="Ex: 55" required />
+                <label for="break-duration-minutes">Durée pause (min)</label><input id="break-duration-minutes" type="number" min="0" placeholder="Ex: 10" required />
+                <label for="working-days">Jours ouvrés</label><input id="working-days" placeholder="Ex: Mon,Tue,Wed,Thu,Fri" required />
+                <label for="lunch-break-start">Début pause déjeuner (optionnel)</label><input id="lunch-break-start" type="time" />
+                <label for="lunch-break-end">Fin pause déjeuner (optionnel)</label><input id="lunch-break-end" type="time" />
+                <button type="submit" class="primary">Générer les créneaux</button>
+              </form>
+            </section>
+            <section class="panel">
               <form id="slot-form" class="panel" data-success-message="Créneau ajouté.">
                 <h3>Créneaux manuels</h3>
                 <label for="slot-value">Créneau (format libre)</label>
                 <input id="slot-value" placeholder="Ex: Mon-08:00" required />
-                <small class="hint">Optionnel si vous avez déjà généré les créneaux via l'étape 1.</small>
                 <button type="submit">Ajouter le créneau</button>
               </form>
-            </div>
+              <div class="panel data-card"><h3>Créneaux existants</h3><ul id="slots-list"></ul></div>
+            </section>
           </section>
 
-          <section class="panel step" id="step-3">
-            <h2>Étape 3 · Ajouter des conditions</h2>
+          <section id="conditions-view" class="panel app-view">
+            <h2>Conditions</h2>
             <form id="condition-form" class="inline-form" data-success-message="Condition ajoutée.">
-              <h3>Ajouter une condition</h3>
               <label for="condition-type">Type de condition</label>
               <select id="condition-type" required>
                 <option value="teacher_unavailable">Professeur indisponible sur un créneau</option>
@@ -119,67 +145,25 @@
               <label for="condition-slot" data-condition-field="teacher_unavailable class_unavailable">Créneau</label>
               <select id="condition-slot" data-condition-field="teacher_unavailable class_unavailable"></select>
               <label for="condition-text">Description</label>
-              <textarea id="condition-text" rows="2" placeholder="Résumé automatique modifiable." required></textarea>
-              <small class="hint">Sélectionnez un type pour afficher uniquement les champs nécessaires.</small>
+              <textarea id="condition-text" rows="2" required></textarea>
               <button type="submit">Ajouter la condition</button>
             </form>
             <ul id="conditions-list"></ul>
           </section>
 
-          <section class="panel step" id="step-4">
-            <h2>Étape 4 · Générer l'emploi du temps</h2>
-            <p class="hint">Vous pouvez charger des données démo, vider ou lancer la génération finale.</p>
-            <section class="actions">
-              <button id="load-demo-btn">Charger des données démo</button>
-              <button id="load-large-demo-btn">Charger une grosse démo</button>
-              <button id="clear-btn" class="danger">Vider toutes les données</button>
-              <button id="generate-btn" class="primary">Générer l'emploi du temps</button>
-            </section>
-            <p id="demo-summary" class="hint">Aucune démo volumineuse chargée.</p>
-            <p id="generation-status" class="generation-status">Aucune génération lancée pour le moment.</p>
-          </section>
-
-          <section class="tables-grid">
-            <div class="panel data-card"><h3>Classes existantes</h3><ul id="classes-list"></ul></div>
-            <div class="panel data-card"><h3>Matières existantes</h3><ul id="subjects-list"></ul></div>
-            <div class="panel data-card"><h3>Professeurs existants</h3><ul id="teachers-list"></ul></div>
-            <div class="panel data-card"><h3>Créneaux existants</h3><ul id="slots-list"></ul></div>
-          </section>
-
-          <section class="panel" id="schedule-section">
-            <h2>Résultat généré</h2>
-            <p class="hint">Le tableau reste lisible avec beaucoup de données grâce aux filtres et au scroll contrôlé.</p>
+          <section id="results-view" class="panel app-view">
+            <h2>Résultats</h2>
             <div class="schedule-controls" aria-label="Filtres d'affichage du planning">
               <label for="schedule-view-mode">Mode d'affichage</label>
-              <select id="schedule-view-mode">
-                <option value="class">Vue classe</option>
-                <option value="teacher">Vue professeur</option>
-              </select>
-
-              <label for="schedule-class-filter">Choisir une classe</label>
-              <select id="schedule-class-filter">
-                <option value="">Choisir une classe</option>
-              </select>
-
-              <label for="schedule-teacher-filter">Choisir un professeur</label>
-              <select id="schedule-teacher-filter">
-                <option value="">Choisir un professeur</option>
-              </select>
-
-              <label for="schedule-search">Recherche (classe ou professeur)</label>
-              <input id="schedule-search" type="search" placeholder="Ex: 6A ou Mme Dupont" />
+              <select id="schedule-view-mode"><option value="class">Vue classe</option><option value="teacher">Vue professeur</option></select>
+              <label for="schedule-class-filter">Choisir une classe</label><select id="schedule-class-filter"><option value="">Choisir une classe</option></select>
+              <label for="schedule-teacher-filter">Choisir un professeur</label><select id="schedule-teacher-filter"><option value="">Choisir un professeur</option></select>
+              <label for="schedule-search">Recherche (classe ou professeur)</label><input id="schedule-search" type="search" placeholder="Ex: 6A ou Mme Dupont" />
             </div>
             <p id="schedule-empty-message" class="hint schedule-empty-message">Sélectionnez une classe ou un professeur.</p>
             <article class="quality-card quality-unknown" id="quality-card">
-              <h3>Qualité de l'emploi du temps</h3>
-              <p id="quality-score" class="quality-score">--/100</p>
-              <ul class="quality-details">
-                <li>Conflits : <strong id="quality-conflicts">-</strong></li>
-                <li>Trous : <strong id="quality-gaps">-</strong></li>
-                <li>Répétitions : <strong id="quality-repeats">-</strong></li>
-                <li>Longues séries : <strong id="quality-sequences">-</strong></li>
-                <li>Équilibre : <strong id="quality-balance">-</strong></li>
-              </ul>
+              <h3>Qualité de l'emploi du temps</h3><p id="quality-score" class="quality-score">--/100</p>
+              <ul class="quality-details"><li>Conflits : <strong id="quality-conflicts">-</strong></li><li>Trous : <strong id="quality-gaps">-</strong></li><li>Répétitions : <strong id="quality-repeats">-</strong></li><li>Longues séries : <strong id="quality-sequences">-</strong></li><li>Équilibre : <strong id="quality-balance">-</strong></li></ul>
             </article>
             <div class="table-wrap"><table id="schedule-table"></table></div>
           </section>
