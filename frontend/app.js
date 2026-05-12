@@ -147,8 +147,8 @@ function bindForms() {
 function updateUnavailableSlotsSummary() {
   const selected = getUnavailableSlots();
   document.getElementById("teacher-unavailable-selected").textContent = selected.length
-    ? `Selected: ${selected.join(", ")}`
-    : "No unavailable slots selected.";
+    ? `Créneaux sélectionnés : ${selected.join(", ")}`
+    : "Aucun créneau sélectionné.";
 }
 
 async function runAction(buttonId, path, loadingLabel) {
@@ -172,9 +172,11 @@ async function runGenerateSchedule() {
     const res = await api("/schedule/generate", { method: "POST" });
     if (res.success === false) throw new Error(res.message || "Failed to generate schedule");
     await refreshScheduleTable();
-    notify(res.message || "Schedule generated successfully");
+    notify(res.message || "Emploi du temps généré avec succès");
+    document.getElementById("generation-status").textContent = `Dernière génération : ${new Date().toLocaleString("fr-FR")}.`;
   } catch (error) {
-    notify(`Schedule generation failed: ${error.message}`, "error");
+    notify(`Échec de génération : ${error.message}`, "error");
+    document.getElementById("generation-status").textContent = "La dernière génération a échoué. Vérifiez vos données et réessayez.";
   } finally {
     setLoading(btn, false);
   }
@@ -265,7 +267,7 @@ function fillList(id, items) {
 function renderScheduleTable(slots, classes, schedule) {
   const table = document.getElementById("schedule-table");
   if (!classes.length || !slots.length) {
-    table.innerHTML = "<tr><td>Add classes and slots to view schedule table.</td></tr>";
+    table.innerHTML = "<tr><td>Ajoutez des classes et des créneaux pour afficher un résultat généré.</td></tr>";
     return;
   }
   const head = `<tr><th>Slot</th>${classes.map((c) => `<th>${c}</th>`).join("")}</tr>`;
