@@ -18,8 +18,8 @@ class SchedulerService:
         teachers: list[Teacher],
         subjects: list[Subject],
         slots: list[str],
-        max_lessons_per_class_per_day: int = 6,
-        max_lessons_per_teacher_per_day: int = 6,
+        default_max_lessons_per_class_per_day: int = 6,
+        default_max_lessons_per_teacher_per_day: int = 6,
     ) -> ScheduleResult:
         if not classes:
             return ScheduleResult(False, "Cannot generate schedule: no classes added.", {})
@@ -48,16 +48,18 @@ class SchedulerService:
             )
 
         weekly_hours_per_class = sum(subject_hours.values())
-        class_weekly_capacity = len(days) * max_lessons_per_class_per_day
-        if weekly_hours_per_class > class_weekly_capacity:
-            return ScheduleResult(
-                False,
-                (
-                    "Cannot generate schedule: class daily max is too low for weekly requirements "
-                    f"({weekly_hours_per_class} required, {class_weekly_capacity} max capacity per class)."
-                ),
-                {},
-            )
+        for class_obj in classes:
+            class_daily_limit = max(1, getattr(class_obj, "max_lessons_per_day", default_max_lessons_per_class_per_day))
+            class_weekly_capacity = len(days) * class_daily_limit
+            if weekly_hours_per_class > class_weekly_capacity:
+                return ScheduleResult(
+                    False,
+                    (
+                        f"Cannot generate schedule: class '{class_obj.name}' daily max is too low for weekly requirements "
+                        f"({weekly_hours_per_class} required, {class_weekly_capacity} max capacity)."
+                    ),
+                    {},
+                )
 
         teachers_by_subject: dict[str, list[Teacher]] = defaultdict(list)
         for teacher in teachers:
@@ -74,7 +76,8 @@ class SchedulerService:
 
         for teacher in teachers:
             available_slots = [slot for slot in slots if slot not in set(teacher.unavailable_slots)]
-            teacher_weekly_capacity = len(days) * max_lessons_per_teacher_per_day
+            teacher_daily_limit = max(1, getattr(teacher, "max_lessons_per_day", default_max_lessons_per_teacher_per_day))
+            teacher_weekly_capacity = len(days) * teacher_daily_limit
             capped_capacity = min(len(available_slots), teacher_weekly_capacity)
             if capped_capacity <= 0 and teacher.subjects:
                 return ScheduleResult(
@@ -118,7 +121,8 @@ class SchedulerService:
                 day = day_of(slot)
                 if class_busy.get((class_obj.id, slot)):
                     continue
-                if class_daily_load[(class_obj.id, day)] >= max_lessons_per_class_per_day:
+                class_daily_limit = max(1, getattr(class_obj, "max_lessons_per_day", default_max_lessons_per_class_per_day))
+                if class_daily_load[(class_obj.id, day)] >= class_daily_limit:
                     continue
 
                 for teacher in valid_teachers:
@@ -126,7 +130,8 @@ class SchedulerService:
                         continue
                     if teacher_busy.get((teacher.id, slot)):
                         continue
-                    if teacher_daily_load[(teacher.id, day)] >= max_lessons_per_teacher_per_day:
+                    teacher_daily_limit = max(1, getattr(teacher, "max_lessons_per_day", default_max_lessons_per_teacher_per_day))
+                    if teacher_daily_load[(teacher.id, day)] >= teacher_daily_limit:
                         continue
 
                     class_busy[(class_obj.id, slot)] = True

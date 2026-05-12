@@ -3,17 +3,20 @@ from pydantic import BaseModel, Field
 
 class ClassCreate(BaseModel):
     name: str = Field(min_length=1)
+    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class Class(BaseModel):
     id: int
     name: str
+    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class TeacherCreate(BaseModel):
     name: str = Field(min_length=1)
     subjects: list[str] = Field(default_factory=list)
     unavailable_slots: list[str] = Field(default_factory=list)
+    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class Teacher(BaseModel):
@@ -21,6 +24,7 @@ class Teacher(BaseModel):
     name: str
     subjects: list[str]
     unavailable_slots: list[str] = Field(default_factory=list)
+    max_lessons_per_day: int = Field(default=6, ge=1)
 
 
 class SubjectCreate(BaseModel):

@@ -24,18 +24,19 @@ class MemoryStore:
 
     def load_demo_data(self) -> None:
         self.clear_all()
-        for class_name in ["Grade 7A", "Grade 8B", "Grade 9C"]:
-            self.add_class(class_name)
+        self.add_class("Grade 7A", max_lessons_per_day=5)
+        self.add_class("Grade 8B", max_lessons_per_day=5)
+        self.add_class("Grade 9C", max_lessons_per_day=6)
 
         self.add_subject("Math", 3)
         self.add_subject("Science", 2)
         self.add_subject("English", 2)
         self.add_subject("History", 1)
 
-        self.add_teacher("Mr. Khan", ["Math", "Science"])
-        self.add_teacher("Ms. Lee", ["English", "History"])
-        self.add_teacher("Mrs. Patel", ["Math", "History"])
-        self.add_teacher("Mr. Gomez", ["Science", "English"])
+        self.add_teacher("Mr. Khan", ["Math", "Science"], ["Mon-09:00", "Thu-09:00"], max_lessons_per_day=4)
+        self.add_teacher("Ms. Lee", ["English", "History"], ["Tue-08:00"], max_lessons_per_day=4)
+        self.add_teacher("Mrs. Patel", ["Math", "History"], ["Fri-10:00"], max_lessons_per_day=5)
+        self.add_teacher("Mr. Gomez", ["Science", "English"], ["Wed-08:00", "Fri-09:00"], max_lessons_per_day=4)
 
         for slot in [
             "Mon-08:00", "Mon-09:00", "Tue-08:00", "Tue-09:00", "Wed-08:00",
@@ -43,18 +44,25 @@ class MemoryStore:
         ]:
             self.add_slot(slot)
 
-    def add_class(self, name: str) -> Class:
-        item = Class(id=self._class_id, name=name)
+    def add_class(self, name: str, max_lessons_per_day: int = 6) -> Class:
+        item = Class(id=self._class_id, name=name, max_lessons_per_day=max_lessons_per_day)
         self._class_id += 1
         self.classes.append(item)
         return item
 
-    def add_teacher(self, name: str, subjects: list[str], unavailable_slots: list[str] | None = None) -> Teacher:
+    def add_teacher(
+        self,
+        name: str,
+        subjects: list[str],
+        unavailable_slots: list[str] | None = None,
+        max_lessons_per_day: int = 6,
+    ) -> Teacher:
         item = Teacher(
             id=self._teacher_id,
             name=name,
             subjects=subjects,
             unavailable_slots=unavailable_slots or [],
+            max_lessons_per_day=max_lessons_per_day,
         )
         self._teacher_id += 1
         self.teachers.append(item)

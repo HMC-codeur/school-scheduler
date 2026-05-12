@@ -52,36 +52,24 @@ def test_teacher_unavailable_slots_are_respected():
 
 
 def test_class_daily_max_hours_enforced():
-    classes = [Class(id=1, name="A")]
+    classes = [Class(id=1, name="A", max_lessons_per_day=1)]
     subjects = [Subject(name="Math", hours_per_week=3)]
     teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
     slots = ["Mon-08", "Mon-09", "Tue-08"]
 
-    result = SchedulerService.generate(
-        classes,
-        teachers,
-        subjects,
-        slots,
-        max_lessons_per_class_per_day=1,
-    )
+    result = SchedulerService.generate(classes, teachers, subjects, slots)
 
     assert result.success is False
-    assert "class daily max" in result.message.lower()
+    assert "daily max is too low" in result.message.lower()
 
 
 def test_teacher_daily_max_hours_enforced():
     classes = [Class(id=1, name="A"), Class(id=2, name="B")]
     subjects = [Subject(name="Math", hours_per_week=1)]
-    teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
+    teachers = [Teacher(id=1, name="T1", subjects=["Math"], max_lessons_per_day=1)]
     slots = ["Mon-08", "Mon-09"]
 
-    result = SchedulerService.generate(
-        classes,
-        teachers,
-        subjects,
-        slots,
-        max_lessons_per_teacher_per_day=1,
-    )
+    result = SchedulerService.generate(classes, teachers, subjects, slots)
 
     assert result.success is False
     assert "constraints conflict" in result.message.lower()
