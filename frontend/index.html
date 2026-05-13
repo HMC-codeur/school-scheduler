@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>School Scheduler Dashboard</title>
-    <link rel="stylesheet" href="/style.css?v=scoring-v2" />
+    <link rel="stylesheet" href="/style.css?v=options-v2" />
   </head>
   <body>
     <div class="app-shell">
@@ -184,14 +184,15 @@
                 <li>Équilibre : <strong id="quality-balance">-</strong></li>
               </ul>
             </article>
-            <div id="schedule-options" class="schedule-options"></div>
-            <article class="score-breakdown-card">
+            <div id="options-container"><h3>Options générées</h3><div id="schedule-options" class="schedule-options"></div></div>
+            <article class="score-breakdown-card" id="score-breakdown">
               <h3>Détail du score</h3>
               <p class="hint"><strong>Base :</strong> 100 points</p>
+              <p class="hint"><strong>Score final :</strong> <span id="score-final">--/100</span></p>
               <ul id="score-breakdown-list" class="score-breakdown-list">
                 <li class="hint">Aucun détail de score disponible.</li>
               </ul>
-              <div class="hint">
+              <div class="hint" id="options-debug">
                 <p><strong>Debug scoring :</strong></p>
                 <p>Options reçues : <span id="score-debug-options-count">0</span></p>
                 <p>Option sélectionnée : <span id="score-debug-option">-</span></p>
@@ -207,6 +208,6 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=scoring-v2"></script>
+    <script src="/app.js?v=options-v2"></script>
   </body>
 </html>

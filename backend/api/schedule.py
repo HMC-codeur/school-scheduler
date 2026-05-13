@@ -8,6 +8,24 @@ from backend.models.schemas import GenerateScheduleResponse, ScheduleCell
 from backend.services.explainer import explain_generation_failure
 from backend.services.scheduler import SchedulerService
 
+
+def _is_complete_option(option: dict) -> bool:
+    return bool(
+        option.get("id")
+        and option.get("schedule") is not None
+        and option.get("quality_score") is not None
+        and option.get("schedule_signature")
+    )
+
+
+def _normalize_options(options: list[dict], selected_option_id: str | None = None) -> list[dict]:
+    valid = [opt for opt in options if _is_complete_option(opt)]
+    valid.sort(key=lambda option: option.get("quality_score") or 0, reverse=True)
+    fallback_selected = selected_option_id if selected_option_id and any(o.get("id") == selected_option_id for o in valid) else (valid[0].get("id") if valid else None)
+    for option in valid:
+        option["selected"] = option.get("id") == fallback_selected
+    return valid
+
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
@@ -21,14 +39,10 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         message = result.message or explain_generation_failure(store.classes, store.teachers, store.subjects, store.slots)
         return GenerateScheduleResponse(success=False, message=message, schedule={})
 
-    store.schedule_options = SchedulerService.generate_options(
+    generated_options = SchedulerService.generate_options(
         store.classes, store.teachers, store.subjects, store.slots, store.conditions
     )
-    if not store.schedule_options:
-        store.schedule_options = []
-    store.schedule_options.sort(key=lambda option: option.get("quality_score") or 0, reverse=True)
-    for idx, option in enumerate(store.schedule_options):
-        option["selected"] = idx == 0
+    store.schedule_options = _normalize_options(generated_options)
     best_option = store.schedule_options[0] if store.schedule_options else None
     if best_option is None:
         return GenerateScheduleResponse(success=False, message="No schedule option could be generated.", schedule={})
@@ -81,4 +95,5 @@ def select_option(option_id: str, store: MemoryStore = Depends(get_store)) -> di
         raise HTTPException(status_code=404, detail="Schedule option not found")
     store.selected_schedule_option_id = option_id
     store.schedule = option.get("schedule", {})
+    store.schedule_options = _normalize_options(store.schedule_options, selected_option_id=option_id)
     return {"message": f"Option '{option_id}' selected.", "selected_option_id": option_id}

@@ -210,6 +210,15 @@ function syncScheduleFiltersUI() {
   $("schedule-teacher-filter").disabled = isClassView;
 }
 
+function getSelectedScheduleOption() {
+  const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
+  if (!options.length) return null;
+  return options.find((option) => option.selected === true)
+    || options.find((option) => option.id === scheduleState.selectedOptionId)
+    || options[0]
+    || null;
+}
+
 function renderQualityMetrics(metrics) {
   const card = $("quality-card");
   const hasMetrics = Number.isFinite(metrics?.quality_score);
@@ -235,16 +244,17 @@ function renderQualityMetrics(metrics) {
   $("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
 }
 
-function renderScoreBreakdown(metrics) {
+function renderScoreBreakdown(option) {
   const root = $("score-breakdown-list");
-  const breakdown = Array.isArray(metrics?.score_breakdown) ? metrics.score_breakdown : [];
+  const breakdown = Array.isArray(option?.score_breakdown) ? option.score_breakdown : [];
   $("score-debug-option").textContent = scheduleState.selectedOptionId || "-";
   $("score-debug-options-count").textContent = String(scheduleState.scheduleOptions.length || 0);
-  $("score-debug-signature").textContent = metrics?.schedule_signature || "-";
+  $("score-debug-signature").textContent = option?.schedule_signature || "-";
   $("score-debug-items").textContent = String(breakdown.length);
-  $("score-debug-received").textContent = Number.isFinite(Number(metrics?.quality_score)) ? String(Number(metrics.quality_score)) : "--";
+  $("score-debug-received").textContent = Number.isFinite(Number(option?.quality_score)) ? String(Number(option.quality_score)) : "--";
+  $("score-final").textContent = Number.isFinite(Number(option?.quality_score)) ? `${Number(option.quality_score)}/100` : "--/100";
   if (!breakdown.length) {
-    root.replaceChildren(create("li", "Aucun détail de score disponible.", "hint"));
+    root.replaceChildren(create("li", "Aucun détail de score disponible pour cette option.", "hint"));
     return;
   }
   const items = breakdown.map((item) => {
@@ -262,11 +272,11 @@ async function selectScheduleOption(optionId) {
   const [scheduleOptions, schedule] = await Promise.all([api("/schedule/options"), api("/schedule")]);
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.schedule = schedule || {};
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || optionId;
-  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
-  renderQualityMetrics(selected || {});
-  renderScoreBreakdown(selected || {});
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.selectedOptionId || optionId;
+  const selected = getSelectedScheduleOption();
   renderScheduleOptions();
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected);
   renderScheduleTableFromState();
 }
 
@@ -274,7 +284,7 @@ function renderScheduleOptions() {
   const root = $("schedule-options");
   const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
   if (!options.length) {
-    root.replaceChildren();
+    root.replaceChildren(create("p", "Aucune option générée.", "hint"));
     return;
   }
   const cards = options.map((option) => {
@@ -376,11 +386,13 @@ async function refreshScheduleTable() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.scheduleOptions[0]?.id || null;
-  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
-  renderQualityMetrics(selected || {});
-  renderScoreBreakdown(selected || {});
+  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
+  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
+  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  const selected = getSelectedScheduleOption();
   renderScheduleOptions();
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected);
   populateScheduleFilters();
   renderScheduleTableFromState();
 }
@@ -417,14 +429,16 @@ async function refresh() {
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.scheduleOptions[0]?.id || null;
+  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
+  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
+  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  const selected = getSelectedScheduleOption();
   renderScheduleOptions();
 
   populateScheduleFilters();
   renderScheduleTableFromState();
-  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
   renderQualityMetrics(selected || {});
-  renderScoreBreakdown(selected || {});
+  renderScoreBreakdown(selected);
   updateConditionFieldVisibility();
 }
 
