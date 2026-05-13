@@ -1,71 +1,52 @@
-# AI School Timetable Generator (MVP)
+# School Scheduler (FastAPI + Vanilla JS)
 
-Production-style SaaS MVP using FastAPI + Vanilla JS that builds conflict-free school timetables with a backtracking CSP scheduler.
+Application MVP pour créer des données scolaires (classes, professeurs, matières, créneaux), définir des conditions, générer un emploi du temps, visualiser le planning et les métriques qualité.
 
-## Folder Structure
-
-```text
-backend/
-  main.py
-  api/
-    classes.py
-    teachers.py
-    subjects.py
-    slots.py
-    schedule.py
-  models/
-    schemas.py
-  services/
-    scheduler.py
-  data/
-    memory_store.py
-frontend/
-  index.html
-  style.css
-  app.js
-```
-
-## Features
-
-- In-memory storage for classes, teachers, subjects, and timeslots
-- REST API for CRUD-style creation/listing and schedule generation
-- Constraint-based scheduler with recursive backtracking
-- Frontend dashboard for data entry and schedule visualization
-
-## Scheduling Constraints Enforced
-
-1. Teacher cannot teach multiple classes in the same slot
-2. A class cannot have multiple subjects in the same slot
-3. Subject weekly hours are exactly allocated per class
-4. Invalid combinations are rejected during assignment
-5. If no complete solution exists, API returns `no valid schedule found`
-
-## Run Locally
-
-### 1) Install dependencies
+## Démarrage rapide
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn pydantic
-```
-
-### 2) Start server
-
-```bash
+pip install -r requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-### 3) Open app
+- UI: http://127.0.0.1:8000/
+- Swagger: http://127.0.0.1:8000/docs
 
-- Dashboard: http://127.0.0.1:8000/
-- API docs: http://127.0.0.1:8000/docs
+## Variables d'environnement
 
-## API Endpoints
+- `CORS_ALLOW_ORIGINS`: liste CSV d'origines autorisées (ex: `http://localhost,http://127.0.0.1`).
+- `CORS_ALLOW_CREDENTIALS`: booléen (`true/false`).
 
-- `POST /classes`, `GET /classes`
-- `POST /teachers`, `GET /teachers`
-- `POST /subjects`, `GET /subjects`
-- `POST /slots`, `GET /slots`
-- `POST /schedule/generate`
-- `GET /schedule`
+⚠️ Sécurité: la combinaison `CORS_ALLOW_ORIGINS=*` et `CORS_ALLOW_CREDENTIALS=true` est refusée au démarrage.
+
+## Endpoints API
+
+- Classes: `POST /classes`, `GET /classes`
+- Professeurs: `POST /teachers`, `GET /teachers`
+- Matières: `POST /subjects`, `GET /subjects`
+- Créneaux: `POST /slots`, `GET /slots`
+- Conditions: `POST /conditions`, `GET /conditions`, `DELETE /conditions/{condition_id}`
+- Paramètres horaires: `GET /time-settings`, `POST /time-settings`
+- Planning: `POST /schedule/generate`, `GET /schedule`
+- Données de démo: `POST /schedule/load-demo`, `POST /schedule/load-large-demo`, `POST /schedule/clear`
+
+## Qualité / tests
+
+```bash
+pytest
+python -m compileall backend
+```
+
+## Limitations connues
+
+- Store en mémoire (`MemoryStore`): les données sont perdues au redémarrage.
+- Instance unique: pas de partage d'état distribué.
+- Pas d'authentification/autorisation (MVP).
+
+## Troubleshooting
+
+- **Erreur CORS au boot**: vérifier les variables `CORS_ALLOW_ORIGINS` et `CORS_ALLOW_CREDENTIALS`.
+- **422 sur création d'entités**: vérifier les champs obligatoires (noms non vides, heures > 0, formats horaires valides).
+- **Génération impossible**: réduire les contraintes ou augmenter les créneaux.

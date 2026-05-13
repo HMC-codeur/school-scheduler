@@ -1,11 +1,25 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+
+
+def _strip_and_validate(value: str, field_name: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError(f"{field_name} must not be empty")
+    return cleaned
 
 
 class ClassCreate(BaseModel):
     name: str = Field(min_length=1)
     max_lessons_per_day: int = Field(default=6, ge=1)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _strip_and_validate(value, "name")
 
 
 class Class(BaseModel):
@@ -20,6 +34,11 @@ class TeacherCreate(BaseModel):
     unavailable_slots: list[str] = Field(default_factory=list)
     max_lessons_per_day: int = Field(default=6, ge=1)
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _strip_and_validate(value, "name")
+
 
 class Teacher(BaseModel):
     id: int
@@ -33,6 +52,11 @@ class SubjectCreate(BaseModel):
     name: str = Field(min_length=1)
     hours_per_week: int = Field(gt=0)
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _strip_and_validate(value, "name")
+
 
 class Subject(BaseModel):
     name: str
@@ -41,6 +65,11 @@ class Subject(BaseModel):
 
 class SlotCreate(BaseModel):
     slot: str = Field(min_length=1)
+
+    @field_validator("slot")
+    @classmethod
+    def validate_slot(cls, value: str) -> str:
+        return _strip_and_validate(value, "slot")
 
 
 class ConditionCreate(BaseModel):
@@ -71,6 +100,11 @@ class ConditionCreate(BaseModel):
             if not self.subject_name:
                 raise ValueError("subject_name is required for avoid_subject_repeat")
         return self
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _strip_and_validate(value, "text")
 
 
 class Condition(ConditionCreate):
