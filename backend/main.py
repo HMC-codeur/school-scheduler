@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
+from pathlib import Path
 
 from backend.api.classes import router as classes_router
 from backend.api.conditions import router as conditions_router
@@ -45,4 +46,5 @@ app.include_router(schedule_router)
 app.include_router(time_settings_router)
 app.include_router(platform_router)
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
