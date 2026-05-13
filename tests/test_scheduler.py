@@ -106,3 +106,19 @@ def test_generation_fails_cleanly_when_volume_is_impossible():
     result = SchedulerService.generate(classes, teachers, subjects, slots, conditions)
     assert result.success is False
     assert "not enough available slots" in result.message
+
+
+def test_scoring_outputs_breakdown_and_reasonable_long_sequences():
+    classes = [Class(id=1, name="A")]
+    subjects = [Subject(name="Math", hours_per_week=5)]
+    teachers = [Teacher(id=1, name="T1", subjects=["Math"])]
+    slots = ["Mon-08:00", "Mon-09:00", "Mon-10:00", "Mon-11:00", "Mon-13:00"]
+
+    result = SchedulerService.generate(classes, teachers, subjects, slots)
+
+    assert result.success is True
+    assert result.quality_score is not None
+    assert 0 <= result.quality_score <= 100
+    assert isinstance(result.score_breakdown, list)
+    assert result.long_sequences_count is not None
+    assert result.long_sequences_count <= 2

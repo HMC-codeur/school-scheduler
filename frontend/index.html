@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>School Scheduler Dashboard</title>
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=scoring-v2" />
   </head>
   <body>
     <div class="app-shell">
@@ -187,9 +187,16 @@
             <div id="schedule-options" class="schedule-options"></div>
             <article class="score-breakdown-card">
               <h3>Détail du score</h3>
+              <p class="hint"><strong>Base :</strong> 100 points</p>
               <ul id="score-breakdown-list" class="score-breakdown-list">
                 <li class="hint">Aucun détail de score disponible.</li>
               </ul>
+              <div class="hint">
+                <p><strong>Debug scoring :</strong></p>
+                <p>Option sélectionnée : <span id="score-debug-option">-</span></p>
+                <p>Breakdown items : <span id="score-debug-items">0</span></p>
+                <p>Score reçu : <span id="score-debug-received">--</span></p>
+              </div>
             </article>
             <div class="table-wrap"><table id="schedule-table"></table></div>
           </section>
@@ -198,6 +205,6 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js"></script>
+    <script src="/app.js?v=scoring-v2"></script>
   </body>
 </html>

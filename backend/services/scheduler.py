@@ -247,6 +247,17 @@ class SchedulerService:
                 score += points
                 score_breakdown.append({"rule": rule, "label": label, "points": points})
 
+            def has_long_sequence(positions: list[int], threshold: int = 5) -> bool:
+                streak = 1
+                for idx in range(1, len(positions)):
+                    if positions[idx] == positions[idx - 1] + 1:
+                        streak += 1
+                    else:
+                        streak = 1
+                    if streak >= threshold:
+                        return True
+                return False
+
             for (teacher_name, slot), class_names in teacher_slot_use.items():
                 if len(class_names) > 1:
                     conflicts_count += 1
@@ -302,16 +313,10 @@ class SchedulerService:
                             add_rule("avoid_subject_repeat_same_day", f"Matière répétée plusieurs fois pour la classe {class_obj.name} le {day}", -8 * excess)
 
                     # Penalize long streaks of consecutive classes.
-                    streak = 1
-                    for idx in range(1, len(positions)):
-                        if positions[idx] == positions[idx - 1] + 1:
-                            streak += 1
-                        else:
-                            streak = 1
-                        if streak == 5:
-                            long_sequences_count += 1
-                            rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "class_long_sequence"
-                            add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour la classe {class_obj.name} le {day}", -6)
+                    if has_long_sequence(positions, threshold=5):
+                        long_sequences_count += 1
+                        rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "class_long_sequence"
+                        add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour la classe {class_obj.name} le {day}", -6)
 
             teacher_loads: list[int] = []
             for teacher in teachers:
@@ -328,16 +333,10 @@ class SchedulerService:
                             gaps_count += holes
                             for _ in range(holes):
                                 add_rule("teacher_gap", f"Trou détecté pour le professeur {teacher.name} le {day}", -2)
-                    streak = 1
-                    for idx in range(1, len(positions)):
-                        if positions[idx] == positions[idx - 1] + 1:
-                            streak += 1
-                        else:
-                            streak = 1
-                        if streak == 5:
-                            teacher_long_sequences_count += 1
-                            rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "teacher_long_sequence"
-                            add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour le professeur {teacher.name} le {day}", -6)
+                    if has_long_sequence(positions, threshold=5):
+                        teacher_long_sequences_count += 1
+                        rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "teacher_long_sequence"
+                        add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour le professeur {teacher.name} le {day}", -6)
                 teacher_loads.append(teacher_load)
 
             long_sequences_count += teacher_long_sequences_count

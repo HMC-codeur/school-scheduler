@@ -46,7 +46,14 @@ def delete_constraint(constraint_id: int, store: MemoryStore = Depends(get_store
 
 @router.get('/schedule/options')
 def schedule_options(store: MemoryStore = Depends(get_store)) -> list[dict]:
-    return store.schedule_options
+    selected_option_id = store.selected_schedule_option_id
+    return [
+        {
+            **option,
+            "selected": option.get("id") == selected_option_id,
+        }
+        for option in store.schedule_options
+    ]
 
 
 @router.get('/schedule/export/json')
