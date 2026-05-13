@@ -179,6 +179,22 @@ class SchedulerService:
                     generation_time_ms=int((perf_counter() - started_at) * 1000),
                 )
 
+        for class_obj in classes:
+            blocked = class_unavailable_slots.get(class_obj.id, set())
+            available_capacity = len([slot for slot in slots if slot not in blocked])
+            if available_capacity < weekly_hours_per_class:
+                return ScheduleResult(
+                    False,
+                    (
+                        f"Cannot generate schedule: class '{class_obj.name}' has not enough available slots "
+                        f"({weekly_hours_per_class} required, {available_capacity} available)."
+                    ),
+                    {},
+                    required_sessions=total_required_sessions,
+                    scheduled_sessions=0,
+                    generation_time_ms=int((perf_counter() - started_at) * 1000),
+                )
+
         sessions: list[tuple[Class, str]] = []
         for class_obj in classes:
             for subject_name, hours in subject_hours.items():
@@ -398,13 +414,39 @@ class SchedulerService:
                     best_quality_metrics = quality_metrics
 
         if not best_assignments:
+            impossible_reasons: list[str] = []
+            if len(slots) < weekly_hours_per_class:
+                impossible_reasons.append("pas assez de créneaux")
+
+            missing_teachers = [subject_name for subject_name in subject_hours if not teachers_by_subject.get(subject_name)]
+            if missing_teachers:
+                impossible_reasons.append("aucun professeur compatible")
+
+            strict_constraints = len(forced_teacher_unavailable) + len(class_unavailable_slots)
+            if strict_constraints > len(slots):
+                impossible_reasons.append("trop de contraintes")
+
+            heavily_blocked_teachers = []
+            for teacher in teachers:
+                blocked_count = len(teacher_unavailable.get(teacher.id, set()))
+                if blocked_count >= max(1, int(len(slots) * 0.7)):
+                    heavily_blocked_teachers.append(teacher.name)
+            if heavily_blocked_teachers:
+                impossible_reasons.append("prof indisponible sur trop de créneaux")
+
+            for class_obj in classes:
+                available = len([slot for slot in slots if slot not in class_unavailable_slots.get(class_obj.id, set())])
+                if available < weekly_hours_per_class:
+                    impossible_reasons.append("volume demandé impossible")
+                    break
+
+            reason_text = ", ".join(dict.fromkeys(impossible_reasons)) or (
+                "constraints conflict. Check teacher unavailable slots, class unavailable slots, "
+                "daily max lessons per class/teacher, or reduce weekly subject hours"
+            )
             return ScheduleResult(
                 False,
-                (
-                    "Cannot generate schedule: constraints conflict. "
-                    "Check teacher unavailable slots, daily max lessons per class/teacher, "
-                    "or reduce weekly subject hours."
-                ),
+                f"Cannot generate schedule: {reason_text}.",
                 {},
                 required_sessions=total_required_sessions,
                 scheduled_sessions=0,
