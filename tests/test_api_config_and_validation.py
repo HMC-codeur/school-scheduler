@@ -2,7 +2,9 @@ import importlib
 
 import pytest
 
-from backend.models.schemas import ClassCreate, SubjectCreate
+from pydantic import ValidationError
+
+from backend.models.schemas import ClassCreate, ConditionCreate, SubjectCreate, TeacherCreate
 from backend.models.schemas import Class, Subject, Teacher
 from backend.services.scheduler import SchedulerService
 
@@ -47,3 +49,37 @@ def test_condition_type_alias_is_honored():
     condition = __import__("backend.models.schemas", fromlist=["ConditionCreate"]).ConditionCreate(**payload)
     assert condition.condition_type == "class_unavailable"
     assert condition.class_name == "6A"
+
+
+def test_teacher_unavailable_slots_accepts_valid_slot():
+    teacher = TeacherCreate(
+        name="Mme Dupont",
+        subjects=["Math"],
+        unavailable_slots=["Mon-08:00", "Fri-15:30"],
+    )
+    assert teacher.unavailable_slots == ["Mon-08:00", "Fri-15:30"]
+
+
+def test_teacher_unavailable_slots_rejects_invalid_slot():
+    with pytest.raises(ValidationError, match="unavailable_slots item must match format Ddd-HH:MM"):
+        TeacherCreate(name="Mme Dupont", subjects=["Math"], unavailable_slots=["Lun-08:00"])
+
+
+def test_condition_slot_accepts_valid_slot():
+    condition = ConditionCreate(
+        condition_type="teacher_unavailable",
+        text="Teacher unavailable",
+        teacher_name="M. Martin",
+        slot="Tue-09:45",
+    )
+    assert condition.slot == "Tue-09:45"
+
+
+def test_condition_slot_rejects_invalid_slot():
+    with pytest.raises(ValidationError, match="slot must match format Ddd-HH:MM"):
+        ConditionCreate(
+            condition_type="class_unavailable",
+            text="Class unavailable",
+            class_name="6A",
+            slot="Tuesday-09:45",
+        )

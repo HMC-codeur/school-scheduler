@@ -1,5 +1,7 @@
+import re
 from typing import Literal
-
+SLOT_PATTERN = r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)-([01]\d|2[0-3]):([0-5]\d)$"
+SLOT_REGEX = re.compile(SLOT_PATTERN)
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -9,6 +11,13 @@ def _strip_and_validate(value: str, field_name: str) -> str:
     cleaned = value.strip()
     if not cleaned:
         raise ValueError(f"{field_name} must not be empty")
+    return cleaned
+
+
+def _validate_slot(value: str, field_name: str = "slot") -> str:
+    cleaned = _strip_and_validate(value, field_name)
+    if not SLOT_REGEX.fullmatch(cleaned):
+        raise ValueError(f"{field_name} must match format Ddd-HH:MM (example: Mon-08:00)")
     return cleaned
 
 
@@ -38,6 +47,11 @@ class TeacherCreate(BaseModel):
     @classmethod
     def validate_name(cls, value: str) -> str:
         return _strip_and_validate(value, "name")
+
+    @field_validator("unavailable_slots")
+    @classmethod
+    def validate_unavailable_slots(cls, value: list[str]) -> list[str]:
+        return [_validate_slot(slot, "unavailable_slots item") for slot in value]
 
 
 class Teacher(BaseModel):
@@ -69,7 +83,7 @@ class SlotCreate(BaseModel):
     @field_validator("slot")
     @classmethod
     def validate_slot(cls, value: str) -> str:
-        return _strip_and_validate(value, "slot")
+        return _validate_slot(value, "slot")
 
 
 class ConditionCreate(BaseModel):
@@ -101,6 +115,8 @@ class ConditionCreate(BaseModel):
 
         if self.slot_id and not self.slot:
             self.slot = self.slot_id
+        if self.slot:
+            self.slot = _validate_slot(self.slot, "slot")
 
         target = (self.target_id or "").strip() or None
         if self.condition_type == "teacher_unavailable":
