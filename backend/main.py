@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from backend.api.classes import router as classes_router
 from backend.api.conditions import router as conditions_router
@@ -9,16 +11,29 @@ from backend.api.slots import router as slots_router
 from backend.api.subjects import router as subjects_router
 from backend.api.teachers import router as teachers_router
 from backend.api.time_settings import router as time_settings_router
+from backend.config import get_settings
 
 app = FastAPI(title="AI School Timetable Generator", version="0.1.0")
+settings = get_settings()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=settings.cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(ValidationError)
+async def pydantic_validation_error_handler(_: Request, exc: ValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": "Validation error", "errors": exc.errors()})
+
 
 app.include_router(classes_router)
 app.include_router(conditions_router)
