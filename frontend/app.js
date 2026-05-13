@@ -30,7 +30,20 @@ async function api(path, options = {}) {
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Request failed");
+    const detail = err?.detail;
+    if (typeof detail === "string" && detail.trim()) throw new Error(detail);
+    if (Array.isArray(detail) && detail.length) {
+      const formatted = detail
+        .map((item) => {
+          const location = Array.isArray(item?.loc) ? item.loc.join(".") : "payload";
+          const message = item?.msg || "Validation error";
+          return `${location}: ${message}`;
+        })
+        .join(" | ");
+      throw new Error(formatted);
+    }
+    if (err?.message) throw new Error(err.message);
+    throw new Error(`Request failed (${response.status})`);
   }
   return response.json().catch(() => ({}));
 }
@@ -448,9 +461,9 @@ function bindForms() {
     }
   });
 
-  bindSubmit("class-form", "/classes", () => ({ name: $("class-name").value.trim(), max_lessons_per_day: Number($("class-max-lessons").value) }));
-  bindSubmit("subject-form", "/subjects", () => ({ name: $("subject-name").value.trim(), hours_per_week: Number($("subject-hours").value) }));
-  bindSubmit("teacher-form", "/teachers", () => ({ name: $("teacher-name").value.trim(), subjects: $("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: getUnavailableSlots(), max_lessons_per_day: Number($("teacher-max-lessons").value) }));
+  bindSubmit("class-form", "/classes", () => ({ name: $("class-name").value.trim(), max_lessons_per_day: Number.parseInt($("class-max-lessons").value, 10) }));
+  bindSubmit("subject-form", "/subjects", () => ({ name: $("subject-name").value.trim(), hours_per_week: Number.parseInt($("subject-hours").value, 10) }));
+  bindSubmit("teacher-form", "/teachers", () => ({ name: $("teacher-name").value.trim(), subjects: $("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: getUnavailableSlots(), max_lessons_per_day: Number.parseInt($("teacher-max-lessons").value, 10) }));
   bindSubmit("slot-form", "/slots", () => ({ slot: $("slot-value").value.trim() }));
   bindSubmit("condition-form", "/conditions", () => {
     const condition_type = $("condition-type").value;
@@ -464,8 +477,8 @@ function bindForms() {
   bindSubmit("time-settings-form", "/time-settings", () => ({
     day_start_time: $("day-start-time").value,
     day_end_time: $("day-end-time").value,
-    lesson_duration_minutes: Number($("lesson-duration-minutes").value),
-    break_duration_minutes: Number($("break-duration-minutes").value),
+    lesson_duration_minutes: Number.parseInt($("lesson-duration-minutes").value, 10),
+    break_duration_minutes: Number.parseInt($("break-duration-minutes").value, 10),
     working_days: $("working-days").value.split(",").map((d) => d.trim()).filter(Boolean),
     lunch_break_start: $("lunch-break-start").value || null,
     lunch_break_end: $("lunch-break-end").value || null,
