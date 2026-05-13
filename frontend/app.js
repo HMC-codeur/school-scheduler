@@ -133,8 +133,54 @@ function renderScheduleTableFromState() {
   const table = document.getElementById("schedule-table");
   const emptyMessage = document.getElementById("schedule-empty-message");
   const { slots, classes, schedule } = scheduleState;
+  const renderPlaceholder = (message) => {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.textContent = message;
+    row.append(cell);
+    table.replaceChildren(row);
+  };
+  const renderEmptyCell = () => {
+    const empty = document.createElement("span");
+    empty.className = "empty-cell";
+    empty.textContent = "-";
+    return empty;
+  };
+  const renderValueCell = (subject, secondaryText) => {
+    const td = document.createElement("td");
+    if (!subject) {
+      td.append(renderEmptyCell());
+      return td;
+    }
+    const subjectDiv = document.createElement("div");
+    subjectDiv.className = "cell-subject";
+    subjectDiv.textContent = subject;
+    const secondaryDiv = document.createElement("div");
+    secondaryDiv.className = "cell-teacher";
+    secondaryDiv.textContent = secondaryText;
+    td.append(subjectDiv, secondaryDiv);
+    return td;
+  };
+  const renderTable = (selectedLabel, rowBuilder) => {
+    const headerRow = document.createElement("tr");
+    const slotTh = document.createElement("th");
+    slotTh.className = "slot-col";
+    slotTh.textContent = "Créneau";
+    const valueTh = document.createElement("th");
+    valueTh.textContent = selectedLabel;
+    headerRow.append(slotTh, valueTh);
+    const rows = slots.map((slot) => {
+      const tr = document.createElement("tr");
+      const slotTd = document.createElement("td");
+      slotTd.className = "slot-col";
+      slotTd.textContent = slot;
+      tr.append(slotTd, rowBuilder(slot));
+      return tr;
+    });
+    table.replaceChildren(headerRow, ...rows);
+  };
   if (!classes.length || !slots.length) {
-    table.innerHTML = "<tr><td>Ajoutez des classes et des créneaux pour afficher un résultat généré.</td></tr>";
+    renderPlaceholder("Ajoutez des classes et des créneaux pour afficher un résultat généré.");
     emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
     emptyMessage.classList.remove("hidden");
     return;
@@ -144,47 +190,43 @@ function renderScheduleTableFromState() {
   if (scheduleState.viewMode === "class") {
     const selectedClass = scheduleState.selectedClass;
     if (!selectedClass) {
-      table.innerHTML = "";
+      table.replaceChildren();
       emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
       emptyMessage.classList.remove("hidden");
       return;
     }
     if (search && !selectedClass.toLowerCase().includes(search)) {
-      table.innerHTML = "";
+      table.replaceChildren();
       emptyMessage.textContent = "Aucun résultat avec cette recherche.";
       emptyMessage.classList.remove("hidden");
       return;
     }
-    const head = `<tr><th class="slot-col">Créneau</th><th>${selectedClass}</th></tr>`;
-    const rows = slots.map((slot) => {
+    renderTable(selectedClass, (slot) => {
       const cell = schedule?.[slot]?.[selectedClass];
-      return `<tr><td class="slot-col">${slot}</td><td>${cell ? `<div class='cell-subject'>${cell.subject}</div><div class='cell-teacher'>${cell.teacher}</div>` : "<span class='empty-cell'>-</span>"}</td></tr>`;
-    }).join("");
-    table.innerHTML = head + rows;
+      return renderValueCell(cell?.subject, cell?.teacher);
+    });
     emptyMessage.classList.add("hidden");
     return;
   }
 
   const selectedTeacher = scheduleState.selectedTeacher;
   if (!selectedTeacher) {
-    table.innerHTML = "";
+    table.replaceChildren();
     emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
     emptyMessage.classList.remove("hidden");
     return;
   }
   if (search && !selectedTeacher.toLowerCase().includes(search)) {
-    table.innerHTML = "";
+    table.replaceChildren();
     emptyMessage.textContent = "Aucun résultat avec cette recherche.";
     emptyMessage.classList.remove("hidden");
     return;
   }
-  const head = `<tr><th class="slot-col">Créneau</th><th>${selectedTeacher}</th></tr>`;
-  const rows = slots.map((slot) => {
+  renderTable(selectedTeacher, (slot) => {
     const className = classes.find((name) => schedule?.[slot]?.[name]?.teacher === selectedTeacher);
     const cell = className ? schedule?.[slot]?.[className] : null;
-    return `<tr><td class="slot-col">${slot}</td><td>${cell ? `<div class='cell-subject'>${cell.subject}</div><div class='cell-teacher'>Classe: ${className}</div>` : "<span class='empty-cell'>-</span>"}</td></tr>`;
-  }).join("");
-  table.innerHTML = head + rows;
+    return renderValueCell(cell?.subject, className ? `Classe: ${className}` : "");
+  });
   emptyMessage.classList.add("hidden");
 }
 
