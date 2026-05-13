@@ -149,3 +149,6 @@ class GenerateScheduleResponse(BaseModel):
     repeated_subjects_count: int | None = None
     long_sequences_count: int | None = None
     load_balance_status: str | None = None
+    required_sessions: int | None = None
+    scheduled_sessions: int | None = None
+    generation_time_ms: int | None = None

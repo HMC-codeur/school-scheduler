@@ -1,5 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
+from time import perf_counter
 
 from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
 
@@ -15,6 +16,9 @@ class ScheduleResult:
     repeated_subjects_count: int | None = None
     long_sequences_count: int | None = None
     load_balance_status: str | None = None
+    required_sessions: int | None = None
+    scheduled_sessions: int | None = None
+    generation_time_ms: int | None = None
 
 
 class SchedulerService:
@@ -28,6 +32,7 @@ class SchedulerService:
         default_max_lessons_per_class_per_day: int = 6,
         default_max_lessons_per_teacher_per_day: int = 6,
     ) -> ScheduleResult:
+        started_at = perf_counter()
         if not classes:
             return ScheduleResult(False, "Cannot generate schedule: no classes added.", {})
         if not teachers:

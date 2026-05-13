@@ -1,8 +1,30 @@
 const API = "";
-const scheduleState = { slots: [], classes: [], teachers: [], schedule: {}, selectedClass: "", selectedTeacher: "", viewMode: "class", search: "" };
+const scheduleState = {
+  slots: [],
+  classes: [],
+  teachers: [],
+  schedule: {},
+  selectedClass: "",
+  selectedTeacher: "",
+  viewMode: "class",
+  search: "",
+  hasGeneratedSchedule: false,
+  isGenerating: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const create = (tag, text, className) => {
+  const el = document.createElement(tag);
+  if (text !== undefined) el.textContent = text;
+  if (className) el.className = className;
+  return el;
+};
 
 async function api(path, options = {}) {
-  const response = await fetch(`${API}${path}`, { headers: { "Content-Type": "application/json" }, ...options });
+  const response = await fetch(`${API}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || "Request failed");
@@ -10,13 +32,29 @@ async function api(path, options = {}) {
   return response.json().catch(() => ({}));
 }
 
-function notify(message, type = "success") { const el = document.getElementById("toast"); el.textContent = message; el.className = `toast ${type}`; setTimeout(() => (el.className = "toast hidden"), 3000); }
-function setLoading(button, isLoading, text) { button.disabled = isLoading; if (isLoading) { button.dataset.originalText = button.textContent; button.textContent = text; } else { button.textContent = button.dataset.originalText || button.textContent; } }
-function getUnavailableSlots() { return Array.from(document.getElementById("teacher-unavailable-slots").selectedOptions).map((opt) => opt.value); }
-function validateNonEmpty(value, field) { if (!value || !value.trim()) throw new Error(`${field} is required.`); }
+function notify(message, type = "success") {
+  const el = $("toast");
+  el.textContent = message;
+  el.className = `toast ${type}`;
+  setTimeout(() => (el.className = "toast hidden"), 3500);
+}
+
+function setLoading(button, isLoading, text) {
+  button.disabled = isLoading;
+  if (isLoading) {
+    button.dataset.originalText = button.textContent;
+    button.textContent = text;
+    return;
+  }
+  button.textContent = button.dataset.originalText || button.textContent;
+}
+
+function getUnavailableSlots() {
+  return Array.from($("teacher-unavailable-slots").selectedOptions).map((opt) => opt.value);
+}
 
 function updateConditionFieldVisibility() {
-  const type = document.getElementById("condition-type").value;
+  const type = $("condition-type").value;
   document.querySelectorAll("[data-condition-field]").forEach((el) => {
     const types = el.dataset.conditionField.split(" ");
     el.style.display = types.includes(type) ? "" : "none";
@@ -25,97 +63,132 @@ function updateConditionFieldVisibility() {
 }
 
 function buildConditionText() {
-  const type = document.getElementById("condition-type").value;
-  const teacher = document.getElementById("condition-teacher-name").value.trim();
-  const className = document.getElementById("condition-class-name").value.trim();
-  const subject = document.getElementById("condition-subject-name").value.trim();
-  const slot = document.getElementById("condition-slot").value;
+  const type = $("condition-type").value;
+  const teacher = $("condition-teacher-name").value.trim();
+  const className = $("condition-class-name").value.trim();
+  const subject = $("condition-subject-name").value.trim();
+  const slot = $("condition-slot").value;
   let text = "Condition personnalisée";
   if (type === "teacher_unavailable") text = `Professeur ${teacher || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
   if (type === "class_unavailable") text = `Classe ${className || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
   if (type === "subject_morning_preference") text = `Placer ${subject || "(matière à définir)"} le matin si possible`;
   if (type === "avoid_subject_repeat") text = `Éviter de répéter ${subject || "(matière à définir)"}${className ? ` pour ${className}` : ""} le même jour`;
-  document.getElementById("condition-text").value = text;
+  $("condition-text").value = text;
+}
+
+function updateUnavailableSlotsSummary() {
+  const selected = getUnavailableSlots();
+  $("teacher-unavailable-selected").textContent = selected.length
+    ? `Créneaux sélectionnés : ${selected.join(", ")}`
+    : "Aucun créneau sélectionné.";
+}
+
+function renderGenerationBanner(message, level = "info") {
+  const el = $("generation-status");
+  el.textContent = message;
+  el.dataset.level = level;
 }
 
 function resetFormWithDefaults(form) {
   form.reset();
   const excluded = (form.dataset.resetExclusions || "").split(",").map((id) => id.trim()).filter(Boolean);
-  excluded.forEach((id) => { if (id === "class-max-lessons") document.getElementById(id).value = 6; if (id === "teacher-max-lessons") document.getElementById(id).value = 6; });
-  if (form.id === "teacher-form") Array.from(document.getElementById("teacher-unavailable-slots").options).forEach((opt) => (opt.selected = false));
+  excluded.forEach((id) => {
+    if (id === "class-max-lessons") $(id).value = 6;
+    if (id === "teacher-max-lessons") $(id).value = 6;
+  });
+  if (form.id === "teacher-form") {
+    Array.from($("teacher-unavailable-slots").options).forEach((opt) => (opt.selected = false));
+  }
   if (form.id === "condition-form") updateConditionFieldVisibility();
   updateUnavailableSlotsSummary();
 }
 
-function bindForms() {
-  const bindSubmit = (formId, path, payloadBuilder) => document.getElementById(formId).addEventListener("submit", async (e) => {
-    e.preventDefault(); const form = e.target; const btn = form.querySelector("button[type='submit']"); setLoading(btn, true, "Saving...");
-    try { await api(path, { method: "POST", body: JSON.stringify(payloadBuilder()) }); notify(form.dataset.successMessage || "Saved successfully"); resetFormWithDefaults(form); await refresh(); }
-    catch (error) { notify(error.message, "error"); } finally { setLoading(btn, false); }
-  });
-
-  bindSubmit("class-form", "/classes", () => ({ name: document.getElementById("class-name").value.trim(), max_lessons_per_day: Number(document.getElementById("class-max-lessons").value) }));
-  bindSubmit("subject-form", "/subjects", () => ({ name: document.getElementById("subject-name").value.trim(), hours_per_week: Number(document.getElementById("subject-hours").value) }));
-  bindSubmit("teacher-form", "/teachers", () => ({ name: document.getElementById("teacher-name").value.trim(), subjects: document.getElementById("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: getUnavailableSlots(), max_lessons_per_day: Number(document.getElementById("teacher-max-lessons").value) }));
-  bindSubmit("slot-form", "/slots", () => ({ slot: document.getElementById("slot-value").value.trim() }));
-  bindSubmit("condition-form", "/conditions", () => {
-    const condition_type = document.getElementById("condition-type").value;
-    const payload = { condition_type, text: document.getElementById("condition-text").value.trim(), teacher_name: null, class_name: null, subject_name: null, slot: null };
-    if (condition_type === "teacher_unavailable") { payload.teacher_name = document.getElementById("condition-teacher-name").value.trim(); payload.slot = document.getElementById("condition-slot").value; }
-    if (condition_type === "class_unavailable") { payload.class_name = document.getElementById("condition-class-name").value.trim(); payload.slot = document.getElementById("condition-slot").value; }
-    if (condition_type === "subject_morning_preference") payload.subject_name = document.getElementById("condition-subject-name").value.trim();
-    if (condition_type === "avoid_subject_repeat") { payload.subject_name = document.getElementById("condition-subject-name").value.trim(); payload.class_name = document.getElementById("condition-class-name").value.trim() || null; }
-    return payload;
-  });
-
-  bindSubmit("time-settings-form", "/time-settings", () => ({ day_start_time: document.getElementById("day-start-time").value, day_end_time: document.getElementById("day-end-time").value, lesson_duration_minutes: Number(document.getElementById("lesson-duration-minutes").value), break_duration_minutes: Number(document.getElementById("break-duration-minutes").value), working_days: document.getElementById("working-days").value.split(",").map((d) => d.trim()).filter(Boolean), lunch_break_start: document.getElementById("lunch-break-start").value || null, lunch_break_end: document.getElementById("lunch-break-end").value || null }));
-
-  document.getElementById("condition-type").addEventListener("change", updateConditionFieldVisibility);
-  ["condition-teacher-name", "condition-class-name", "condition-subject-name", "condition-slot"].forEach((id) => document.getElementById(id).addEventListener("input", buildConditionText));
-  document.getElementById("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
-  document.getElementById("generate-btn").addEventListener("click", runGenerateSchedule);
-  document.getElementById("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Loading..."));
-  document.getElementById("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
-  document.getElementById("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Clearing..."));
-  document.getElementById("schedule-view-mode").addEventListener("change", (e) => { scheduleState.viewMode = e.target.value; syncScheduleFiltersUI(); renderScheduleTableFromState(); });
-  document.getElementById("schedule-class-filter").addEventListener("change", (e) => { scheduleState.selectedClass = e.target.value; renderScheduleTableFromState(); });
-  document.getElementById("schedule-teacher-filter").addEventListener("change", (e) => { scheduleState.selectedTeacher = e.target.value; renderScheduleTableFromState(); });
-  document.getElementById("schedule-search").addEventListener("input", (e) => { scheduleState.search = e.target.value.trim().toLowerCase(); renderScheduleTableFromState(); });
+function fillList(id, items) {
+  const root = $(id);
+  if (!items.length) return root.replaceChildren(create("li", "-"));
+  root.replaceChildren(...items.map((x) => create("li", x)));
 }
 
-function updateUnavailableSlotsSummary() { const selected = getUnavailableSlots(); document.getElementById("teacher-unavailable-selected").textContent = selected.length ? `Créneaux sélectionnés : ${selected.join(", ")}` : "Aucun créneau sélectionné."; }
-async function runAction(buttonId, path, loadingLabel) { const btn = document.getElementById(buttonId); setLoading(btn, true, loadingLabel); try { const res = await api(path, { method: "POST" }); notify(res.message || "Done", res.success === false ? "error" : "success"); await refresh(); if (path === "/schedule/clear") document.getElementById("demo-summary").textContent = "Aucune démo volumineuse chargée."; } catch (error) { notify(error.message, "error"); } finally { setLoading(btn, false); } }
-async function runGenerateSchedule() { const btn = document.getElementById("generate-btn"); setLoading(btn, true, "Generating..."); try { const res = await api("/schedule/generate", { method: "POST" }); if (res.success === false) throw new Error(res.message || "Failed to generate schedule"); renderQualityMetrics(res); await refreshScheduleTable(); notify(res.message || "Emploi du temps généré avec succès"); document.getElementById("generation-status").textContent = `Dernière génération : ${new Date().toLocaleString("fr-FR")}.`; } catch (error) { notify(`Échec de génération : ${error.message}`, "error"); } finally { setLoading(btn, false); } }
-async function runLoadLargeDemo() {
-  const btn = document.getElementById("load-large-demo-btn");
-  setLoading(btn, true, "Chargement en cours...");
-  const startedAt = performance.now();
-  try {
-    const res = await api("/schedule/load-large-demo", { method: "POST" });
-    await refresh();
-    const stats = res.stats || {};
-    const elapsedMs = Math.round(performance.now() - startedAt);
-    document.getElementById("demo-summary").textContent = `Grosse démo chargée : ${stats.classes || 0} classes, ${stats.teachers || 0} professeurs, ${stats.subjects || 0} matières, ${stats.slots || 0} créneaux (${elapsedMs} ms).`;
-    document.getElementById("generation-status").textContent = "Démo prête : vous pouvez générer immédiatement un emploi du temps.";
-    notify("Grosse démo chargée avec succès.");
-  } catch (error) {
-    notify(error.message, "error");
-  } finally {
-    setLoading(btn, false);
-  }
+function fillTimeSettingsForm(timeSettings) {
+  if (!timeSettings) return;
+  $("day-start-time").value = timeSettings.day_start_time;
+  $("day-end-time").value = timeSettings.day_end_time;
+  $("lesson-duration-minutes").value = timeSettings.lesson_duration_minutes;
+  $("break-duration-minutes").value = timeSettings.break_duration_minutes;
+  $("working-days").value = timeSettings.working_days.join(",");
+  $("lunch-break-start").value = timeSettings.lunch_break_start || "";
+  $("lunch-break-end").value = timeSettings.lunch_break_end || "";
 }
-function renderQualityMetrics(metrics) { /* unchanged */ const card = document.getElementById("quality-card"); const hasMetrics = Number.isFinite(metrics?.quality_score); if (!hasMetrics) { card.className = "quality-card quality-unknown"; document.getElementById("quality-score").textContent = "--/100"; document.getElementById("quality-conflicts").textContent = "-"; document.getElementById("quality-gaps").textContent = "-"; document.getElementById("quality-repeats").textContent = "-"; document.getElementById("quality-sequences").textContent = "-"; document.getElementById("quality-balance").textContent = "-"; return; } const score = Number(metrics.quality_score); const level = score >= 75 ? "good" : score >= 50 ? "average" : "bad"; card.className = `quality-card quality-${level}`; document.getElementById("quality-score").textContent = `${score}/100`; document.getElementById("quality-conflicts").textContent = String(metrics.conflicts_count ?? 0); document.getElementById("quality-gaps").textContent = String(metrics.gaps_count ?? 0); document.getElementById("quality-repeats").textContent = String(metrics.repeated_subjects_count ?? 0); document.getElementById("quality-sequences").textContent = String(metrics.long_sequences_count ?? 0); document.getElementById("quality-balance").textContent = String(metrics.load_balance_status ?? "-"); }
-function populateUnavailableSlots(slots) { const select = document.getElementById("teacher-unavailable-slots"); const currentSelection = new Set(getUnavailableSlots()); select.replaceChildren(...slots.map((slot) => { const opt = document.createElement("option"); opt.value = slot; opt.textContent = slot; return opt; })); Array.from(select.options).forEach((opt) => { opt.selected = currentSelection.has(opt.value); }); const conditionSlot = document.getElementById("condition-slot"); const defaultOpt = document.createElement("option"); defaultOpt.value = ""; defaultOpt.textContent = "Choisir un créneau"; const opts = slots.map((slot) => { const opt = document.createElement("option"); opt.value = slot; opt.textContent = slot; return opt; }); conditionSlot.replaceChildren(defaultOpt, ...opts); updateUnavailableSlotsSummary(); }
-async function refresh() { const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule"), api("/conditions"), api("/time-settings")]); document.getElementById("count-classes").textContent = classes.length; document.getElementById("count-subjects").textContent = subjects.length; document.getElementById("count-teachers").textContent = teachers.length; document.getElementById("count-slots").textContent = slots.length; fillList("classes-list", classes.map((x) => `${x.name} (max/day: ${x.max_lessons_per_day})`)); fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`)); fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/day: ${x.max_lessons_per_day} | unavailable: ${x.unavailable_slots.join(", ") || "-"}`)); fillList("slots-list", slots); renderConditionsList(conditions); fillTimeSettingsForm(timeSettings); populateUnavailableSlots(slots); scheduleState.slots = slots; scheduleState.classes = classes.map((c) => c.name); scheduleState.teachers = teachers.map((t) => t.name); scheduleState.schedule = schedule || {}; populateScheduleFilters(); renderScheduleTableFromState(); renderQualityMetrics({}); updateConditionFieldVisibility(); }
-function fillTimeSettingsForm(timeSettings) { if (!timeSettings) return; document.getElementById("day-start-time").value = timeSettings.day_start_time; document.getElementById("day-end-time").value = timeSettings.day_end_time; document.getElementById("lesson-duration-minutes").value = timeSettings.lesson_duration_minutes; document.getElementById("break-duration-minutes").value = timeSettings.break_duration_minutes; document.getElementById("working-days").value = timeSettings.working_days.join(","); document.getElementById("lunch-break-start").value = timeSettings.lunch_break_start || ""; document.getElementById("lunch-break-end").value = timeSettings.lunch_break_end || ""; }
-function renderConditionsList(conditions) { const list = document.getElementById("conditions-list"); if (!conditions.length) { const li = document.createElement("li"); li.textContent = "-"; list.replaceChildren(li); return; } const items = conditions.map((condition) => { const li = document.createElement("li"); li.className = "conditions-item"; const span = document.createElement("span"); span.textContent = condition.text; const btn = document.createElement("button"); btn.dataset.id = String(condition.id); btn.className = "danger"; btn.textContent = "Supprimer"; li.append(span, btn); return li; }); list.replaceChildren(...items); Array.from(list.querySelectorAll("button[data-id]")).forEach((btn) => { btn.addEventListener("click", async () => { try { await api(`/conditions/${btn.dataset.id}`, { method: "DELETE" }); notify("Condition deleted"); await refresh(); } catch (error) { notify(error.message, "error"); } }); }); }
-async function refreshScheduleTable() { const [classes, slots, schedule, teachers] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers")]); scheduleState.classes = classes.map((c) => c.name); scheduleState.slots = slots; scheduleState.schedule = schedule || {}; scheduleState.teachers = teachers.map((t) => t.name); populateScheduleFilters(); renderScheduleTableFromState(); }
-function fillList(id, items) { const root = document.getElementById(id); if (!items.length) { const li = document.createElement("li"); li.textContent = "-"; root.replaceChildren(li); return; } root.replaceChildren(...items.map((x) => { const li = document.createElement("li"); li.textContent = x; return li; })); }
+
+function populateUnavailableSlots(slots) {
+  const select = $("teacher-unavailable-slots");
+  const currentSelection = new Set(getUnavailableSlots());
+  select.replaceChildren(...slots.map((slot) => {
+    const opt = create("option", slot);
+    opt.value = slot;
+    return opt;
+  }));
+  Array.from(select.options).forEach((opt) => { opt.selected = currentSelection.has(opt.value); });
+
+  const conditionSlot = $("condition-slot");
+  const defaultOpt = create("option", "Choisir un créneau");
+  defaultOpt.value = "";
+  const opts = slots.map((slot) => {
+    const opt = create("option", slot);
+    opt.value = slot;
+    return opt;
+  });
+  conditionSlot.replaceChildren(defaultOpt, ...opts);
+  updateUnavailableSlotsSummary();
+}
+
+function renderConditionsList(conditions) {
+  const list = $("conditions-list");
+  if (!conditions.length) return list.replaceChildren(create("li", "-"));
+
+  const items = conditions.map((condition) => {
+    const li = create("li", undefined, "conditions-item");
+    const span = create("span", condition.text);
+    const btn = create("button", "Supprimer", "danger");
+    btn.dataset.id = String(condition.id);
+    li.append(span, btn);
+    return li;
+  });
+
+  list.replaceChildren(...items);
+  Array.from(list.querySelectorAll("button[data-id]")).forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/conditions/${btn.dataset.id}`, { method: "DELETE" });
+        notify("Condition supprimée.");
+        await refresh();
+      } catch (error) {
+        notify(error.message, "error");
+      }
+    });
+  });
+}
+
 function populateScheduleFilters() {
-  const classSelect = document.getElementById("schedule-class-filter");
-  const teacherSelect = document.getElementById("schedule-teacher-filter");
-  const classDefault = document.createElement("option"); classDefault.value = ""; classDefault.textContent = "Choisir une classe"; const classOptions = scheduleState.classes.map((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; return option; }); classSelect.replaceChildren(classDefault, ...classOptions);
-  const teacherDefault = document.createElement("option"); teacherDefault.value = ""; teacherDefault.textContent = "Choisir un professeur"; const teacherOptions = scheduleState.teachers.map((name) => { const option = document.createElement("option"); option.value = name; option.textContent = name; return option; }); teacherSelect.replaceChildren(teacherDefault, ...teacherOptions);
+  const classSelect = $("schedule-class-filter");
+  const teacherSelect = $("schedule-teacher-filter");
+
+  const classDefault = create("option", "Choisir une classe");
+  classDefault.value = "";
+  classSelect.replaceChildren(classDefault, ...scheduleState.classes.map((name) => {
+    const option = create("option", name);
+    option.value = name;
+    return option;
+  }));
+
+  const teacherDefault = create("option", "Choisir un professeur");
+  teacherDefault.value = "";
+  teacherSelect.replaceChildren(teacherDefault, ...scheduleState.teachers.map((name) => {
+    const option = create("option", name);
+    option.value = name;
+    return option;
+  }));
+
   if (!scheduleState.classes.includes(scheduleState.selectedClass)) scheduleState.selectedClass = "";
   if (!scheduleState.teachers.includes(scheduleState.selectedTeacher)) scheduleState.selectedTeacher = "";
   classSelect.value = scheduleState.selectedClass;
@@ -125,110 +198,270 @@ function populateScheduleFilters() {
 
 function syncScheduleFiltersUI() {
   const isClassView = scheduleState.viewMode === "class";
-  document.getElementById("schedule-class-filter").disabled = !isClassView;
-  document.getElementById("schedule-teacher-filter").disabled = isClassView;
+  $("schedule-class-filter").disabled = !isClassView;
+  $("schedule-teacher-filter").disabled = isClassView;
+}
+
+function renderQualityMetrics(metrics) {
+  const card = $("quality-card");
+  const hasMetrics = Number.isFinite(metrics?.quality_score);
+  if (!hasMetrics) {
+    card.className = "quality-card quality-unknown";
+    $("quality-score").textContent = "--/100";
+    $("quality-conflicts").textContent = "-";
+    $("quality-gaps").textContent = "-";
+    $("quality-repeats").textContent = "-";
+    $("quality-sequences").textContent = "-";
+    $("quality-balance").textContent = "-";
+    return;
+  }
+
+  const score = Number(metrics.quality_score);
+  const level = score >= 75 ? "good" : score >= 50 ? "average" : "bad";
+  card.className = `quality-card quality-${level}`;
+  $("quality-score").textContent = `${score}/100`;
+  $("quality-conflicts").textContent = String(metrics.conflicts_count ?? 0);
+  $("quality-gaps").textContent = String(metrics.gaps_count ?? 0);
+  $("quality-repeats").textContent = String(metrics.repeated_subjects_count ?? 0);
+  $("quality-sequences").textContent = String(metrics.long_sequences_count ?? 0);
+  $("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
 }
 
 function renderScheduleTableFromState() {
-  const table = document.getElementById("schedule-table");
-  const emptyMessage = document.getElementById("schedule-empty-message");
+  const table = $("schedule-table");
+  const emptyMessage = $("schedule-empty-message");
   const { slots, classes, schedule } = scheduleState;
-  const renderPlaceholder = (message) => {
-    const row = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.textContent = message;
-    row.append(cell);
-    table.replaceChildren(row);
-  };
-  const renderEmptyCell = () => {
-    const empty = document.createElement("span");
-    empty.className = "empty-cell";
-    empty.textContent = "-";
-    return empty;
-  };
-  const renderValueCell = (subject, secondaryText) => {
-    const td = document.createElement("td");
-    if (!subject) {
-      td.append(renderEmptyCell());
-      return td;
-    }
-    const subjectDiv = document.createElement("div");
-    subjectDiv.className = "cell-subject";
-    subjectDiv.textContent = subject;
-    const secondaryDiv = document.createElement("div");
-    secondaryDiv.className = "cell-teacher";
-    secondaryDiv.textContent = secondaryText;
-    td.append(subjectDiv, secondaryDiv);
-    return td;
-  };
-  const renderTable = (selectedLabel, rowBuilder) => {
-    const headerRow = document.createElement("tr");
-    const slotTh = document.createElement("th");
-    slotTh.className = "slot-col";
-    slotTh.textContent = "Créneau";
-    const valueTh = document.createElement("th");
-    valueTh.textContent = selectedLabel;
-    headerRow.append(slotTh, valueTh);
-    const rows = slots.map((slot) => {
-      const tr = document.createElement("tr");
-      const slotTd = document.createElement("td");
-      slotTd.className = "slot-col";
-      slotTd.textContent = slot;
-      tr.append(slotTd, rowBuilder(slot));
-      return tr;
-    });
-    table.replaceChildren(headerRow, ...rows);
-  };
-  if (!classes.length || !slots.length) {
-    renderPlaceholder("Ajoutez des classes et des créneaux pour afficher un résultat généré.");
-    emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
+
+  const setEmptyMessage = (msg) => {
+    emptyMessage.textContent = msg;
     emptyMessage.classList.remove("hidden");
+  };
+  const hideEmptyMessage = () => emptyMessage.classList.add("hidden");
+  const emptyCell = () => create("span", "-", "empty-cell");
+
+  if (!scheduleState.hasGeneratedSchedule) {
+    table.replaceChildren();
+    setEmptyMessage("Aucun emploi du temps généré pour le moment.");
+    return;
+  }
+
+  if (!classes.length || !slots.length) {
+    table.replaceChildren();
+    setEmptyMessage("Ajoutez des classes et des créneaux pour afficher un planning.");
     return;
   }
 
   const search = scheduleState.search;
-  if (scheduleState.viewMode === "class") {
-    const selectedClass = scheduleState.selectedClass;
-    if (!selectedClass) {
-      table.replaceChildren();
-      emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
-      emptyMessage.classList.remove("hidden");
-      return;
-    }
-    if (search && !selectedClass.toLowerCase().includes(search)) {
-      table.replaceChildren();
-      emptyMessage.textContent = "Aucun résultat avec cette recherche.";
-      emptyMessage.classList.remove("hidden");
-      return;
-    }
-    renderTable(selectedClass, (slot) => {
-      const cell = schedule?.[slot]?.[selectedClass];
-      return renderValueCell(cell?.subject, cell?.teacher);
-    });
-    emptyMessage.classList.add("hidden");
+  const selected = scheduleState.viewMode === "class" ? scheduleState.selectedClass : scheduleState.selectedTeacher;
+  if (!selected) {
+    table.replaceChildren();
+    setEmptyMessage("Planning généré : choisissez une classe ou un professeur.");
     return;
   }
 
-  const selectedTeacher = scheduleState.selectedTeacher;
-  if (!selectedTeacher) {
+  if (search && !selected.toLowerCase().includes(search)) {
     table.replaceChildren();
-    emptyMessage.textContent = "Sélectionnez une classe ou un professeur.";
-    emptyMessage.classList.remove("hidden");
+    setEmptyMessage("Aucun résultat avec cette recherche.");
     return;
   }
-  if (search && !selectedTeacher.toLowerCase().includes(search)) {
-    table.replaceChildren();
-    emptyMessage.textContent = "Aucun résultat avec cette recherche.";
-    emptyMessage.classList.remove("hidden");
-    return;
-  }
-  renderTable(selectedTeacher, (slot) => {
-    const className = classes.find((name) => schedule?.[slot]?.[name]?.teacher === selectedTeacher);
-    const cell = className ? schedule?.[slot]?.[className] : null;
-    return renderValueCell(cell?.subject, className ? `Classe: ${className}` : "");
+
+  const headerRow = create("tr");
+  headerRow.append(create("th", "Créneau", "slot-col"), create("th", selected));
+
+  const rows = slots.map((slot) => {
+    const tr = create("tr");
+    const slotTd = create("td", slot, "slot-col");
+    const td = create("td");
+
+    let subject = "";
+    let secondary = "";
+    if (scheduleState.viewMode === "class") {
+      const cell = schedule?.[slot]?.[selected];
+      subject = cell?.subject || "";
+      secondary = cell?.teacher || "";
+    } else {
+      const className = classes.find((name) => schedule?.[slot]?.[name]?.teacher === selected);
+      const cell = className ? schedule?.[slot]?.[className] : null;
+      subject = cell?.subject || "";
+      secondary = className ? `Classe: ${className}` : "";
+    }
+
+    if (!subject) {
+      td.append(emptyCell());
+    } else {
+      td.append(create("div", subject, "cell-subject"), create("div", secondary, "cell-teacher"));
+    }
+
+    tr.append(slotTd, td);
+    return tr;
   });
-  emptyMessage.classList.add("hidden");
+
+  table.replaceChildren(headerRow, ...rows);
+  hideEmptyMessage();
+}
+
+async function refreshScheduleTable() {
+  const [classes, slots, schedule, teachers] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers")]);
+  scheduleState.classes = classes.map((c) => c.name);
+  scheduleState.slots = slots;
+  scheduleState.schedule = schedule || {};
+  scheduleState.teachers = teachers.map((t) => t.name);
+  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+  populateScheduleFilters();
+  renderScheduleTableFromState();
+}
+
+async function refresh() {
+  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([
+    api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule"), api("/conditions"), api("/time-settings"),
+  ]);
+
+  $("count-classes").textContent = classes.length;
+  $("count-subjects").textContent = subjects.length;
+  $("count-teachers").textContent = teachers.length;
+  $("count-slots").textContent = slots.length;
+
+  fillList("classes-list", classes.map((x) => `${x.name} (max/jour: ${x.max_lessons_per_day})`));
+  fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
+  fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/jour: ${x.max_lessons_per_day} | indisponibilités: ${x.unavailable_slots.join(", ") || "-"}`));
+  fillList("slots-list", slots);
+
+  renderConditionsList(conditions);
+  fillTimeSettingsForm(timeSettings);
+  populateUnavailableSlots(slots);
+
+  scheduleState.slots = slots;
+  scheduleState.classes = classes.map((c) => c.name);
+  scheduleState.teachers = teachers.map((t) => t.name);
+  scheduleState.schedule = schedule || {};
+  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+
+  populateScheduleFilters();
+  renderScheduleTableFromState();
+  renderQualityMetrics({});
+  updateConditionFieldVisibility();
+}
+
+async function runAction(buttonId, path, loadingLabel) {
+  const btn = $(buttonId);
+  setLoading(btn, true, loadingLabel);
+  try {
+    const res = await api(path, { method: "POST" });
+    notify(res.message || "Opération terminée.", res.success === false ? "error" : "success");
+    await refresh();
+    if (path === "/schedule/clear") {
+      $("demo-summary").textContent = "Aucune démo volumineuse chargée.";
+      renderGenerationBanner("Données effacées. Vous pouvez recharger une démo ou saisir vos données.", "info");
+      scheduleState.hasGeneratedSchedule = false;
+      renderScheduleTableFromState();
+    }
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function runLoadLargeDemo() {
+  const btn = $("load-large-demo-btn");
+  setLoading(btn, true, "Chargement en cours...");
+  const startedAt = performance.now();
+  try {
+    const res = await api("/schedule/load-large-demo", { method: "POST" });
+    await refresh();
+    const stats = res.stats || {};
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    $("demo-summary").textContent = `Grosse démo chargée : ${stats.classes || 0} classes, ${stats.teachers || 0} professeurs, ${stats.subjects || 0} matières, ${stats.slots || 0} créneaux (${elapsedMs} ms).`;
+    renderGenerationBanner("Démo volumineuse prête. Sélectionnez ensuite une vue classe/professeur après génération.", "success");
+    notify("Grosse démo chargée avec succès.");
+  } catch (error) {
+    renderGenerationBanner(`Erreur de chargement démo : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function runGenerateSchedule() {
+  const btn = $("generate-btn");
+  setLoading(btn, true, "Génération...");
+  scheduleState.isGenerating = true;
+  renderGenerationBanner("Génération en cours...", "loading");
+  try {
+    const res = await api("/schedule/generate", { method: "POST" });
+    if (res.success === false) throw new Error(res.message || "Échec de génération");
+    renderQualityMetrics(res);
+    await refreshScheduleTable();
+    scheduleState.hasGeneratedSchedule = true;
+    renderGenerationBanner(`Dernière génération réussie le ${new Date().toLocaleString("fr-FR")}.`, "success");
+    notify(res.message || "Emploi du temps généré avec succès");
+  } catch (error) {
+    renderGenerationBanner(`Échec de génération : ${error.message}`, "error");
+    notify(`Échec de génération : ${error.message}`, "error");
+  } finally {
+    scheduleState.isGenerating = false;
+    setLoading(btn, false);
+  }
+}
+
+function bindForms() {
+  const bindSubmit = (formId, path, payloadBuilder) => $(formId).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector("button[type='submit']");
+    setLoading(btn, true, "Enregistrement...");
+    try {
+      await api(path, { method: "POST", body: JSON.stringify(payloadBuilder()) });
+      notify(form.dataset.successMessage || "Enregistré.");
+      resetFormWithDefaults(form);
+      await refresh();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+
+  bindSubmit("class-form", "/classes", () => ({ name: $("class-name").value.trim(), max_lessons_per_day: Number($("class-max-lessons").value) }));
+  bindSubmit("subject-form", "/subjects", () => ({ name: $("subject-name").value.trim(), hours_per_week: Number($("subject-hours").value) }));
+  bindSubmit("teacher-form", "/teachers", () => ({ name: $("teacher-name").value.trim(), subjects: $("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: getUnavailableSlots(), max_lessons_per_day: Number($("teacher-max-lessons").value) }));
+  bindSubmit("slot-form", "/slots", () => ({ slot: $("slot-value").value.trim() }));
+  bindSubmit("condition-form", "/conditions", () => {
+    const condition_type = $("condition-type").value;
+    const payload = { condition_type, text: $("condition-text").value.trim(), teacher_name: null, class_name: null, subject_name: null, slot: null };
+    if (condition_type === "teacher_unavailable") { payload.teacher_name = $("condition-teacher-name").value.trim(); payload.slot = $("condition-slot").value; }
+    if (condition_type === "class_unavailable") { payload.class_name = $("condition-class-name").value.trim(); payload.slot = $("condition-slot").value; }
+    if (condition_type === "subject_morning_preference") payload.subject_name = $("condition-subject-name").value.trim();
+    if (condition_type === "avoid_subject_repeat") { payload.subject_name = $("condition-subject-name").value.trim(); payload.class_name = $("condition-class-name").value.trim() || null; }
+    return payload;
+  });
+  bindSubmit("time-settings-form", "/time-settings", () => ({
+    day_start_time: $("day-start-time").value,
+    day_end_time: $("day-end-time").value,
+    lesson_duration_minutes: Number($("lesson-duration-minutes").value),
+    break_duration_minutes: Number($("break-duration-minutes").value),
+    working_days: $("working-days").value.split(",").map((d) => d.trim()).filter(Boolean),
+    lunch_break_start: $("lunch-break-start").value || null,
+    lunch_break_end: $("lunch-break-end").value || null,
+  }));
+
+  $("condition-type").addEventListener("change", updateConditionFieldVisibility);
+  ["condition-teacher-name", "condition-class-name", "condition-subject-name", "condition-slot"].forEach((id) => $(id).addEventListener("input", buildConditionText));
+  $("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
+
+  $("generate-btn").addEventListener("click", runGenerateSchedule);
+  $("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Chargement..."));
+  $("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
+  $("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Suppression..."));
+
+  $("schedule-view-mode").addEventListener("change", (e) => { scheduleState.viewMode = e.target.value; syncScheduleFiltersUI(); renderScheduleTableFromState(); });
+  $("schedule-class-filter").addEventListener("change", (e) => { scheduleState.selectedClass = e.target.value; renderScheduleTableFromState(); });
+  $("schedule-teacher-filter").addEventListener("change", (e) => { scheduleState.selectedTeacher = e.target.value; renderScheduleTableFromState(); });
+  $("schedule-search").addEventListener("input", (e) => { scheduleState.search = e.target.value.trim().toLowerCase(); renderScheduleTableFromState(); });
 }
 
 bindForms();
-refresh();
+refresh().catch((error) => {
+  renderGenerationBanner(`Erreur au chargement initial : ${error.message}`, "error");
+  notify(error.message, "error");
+});
