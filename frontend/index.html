@@ -117,7 +117,8 @@
               <label for="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat">Matière</label>
               <input id="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat" placeholder="Ex: Mathématiques" />
               <label for="condition-slot" data-condition-field="teacher_unavailable class_unavailable">Créneau</label>
-              <select id="condition-slot" data-condition-field="teacher_unavailable class_unavailable"></select>
+              <input id="condition-slot" data-condition-field="teacher_unavailable class_unavailable" list="condition-slot-options" placeholder="Ex: Mon-08:00" />
+              <datalist id="condition-slot-options"></datalist>
               <label for="condition-text">Description</label>
               <textarea id="condition-text" rows="2" placeholder="Résumé automatique modifiable." required></textarea>
               <small class="hint">Sélectionnez un type pour afficher uniquement les champs nécessaires.</small>
