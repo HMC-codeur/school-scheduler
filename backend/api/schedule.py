@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from backend.data.store import get_store
 from backend.data.memory_store import MemoryStore
 from backend.models.schemas import GenerateScheduleResponse, ScheduleCell
+from backend.services.explainer import explain_generation_failure
 from backend.services.scheduler import SchedulerService
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -14,9 +15,12 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
     result = SchedulerService.generate(store.classes, store.teachers, store.subjects, store.slots, store.conditions)
     if not result.success:
         store.schedule = {}
-        return GenerateScheduleResponse(success=False, message=result.message, schedule={})
+        store.schedule_options = []
+        message = result.message or explain_generation_failure(store.classes, store.teachers, store.subjects, store.slots)
+        return GenerateScheduleResponse(success=False, message=message, schedule={})
 
     store.schedule = result.schedule
+    store.schedule_options = [{"id": "option-1", "score": result.quality_score, "schedule": result.schedule, "message": result.message}]
     return GenerateScheduleResponse(
         success=True,
         message=result.message,

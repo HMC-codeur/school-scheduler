@@ -10,6 +10,9 @@ const scheduleState = {
   search: "",
   hasGeneratedSchedule: false,
   isGenerating: false,
+  scheduleOptions: [],
+  selectedOptionId: null,
+  backendStatus: "unknown",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -301,12 +304,14 @@ function renderScheduleTableFromState() {
 }
 
 async function refreshScheduleTable() {
-  const [classes, slots, schedule, teachers] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers")]);
+  const [classes, slots, schedule, teachers, options] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.slots = slots;
   scheduleState.schedule = schedule || {};
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
   populateScheduleFilters();
   renderScheduleTableFromState();
 }
@@ -335,6 +340,8 @@ async function refresh() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
 
   populateScheduleFilters();
   renderScheduleTableFromState();
