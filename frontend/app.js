@@ -6,6 +6,7 @@ const state = {
   subjects: [],
   slots: [],
   schedule: {},
+  conditions: [],
   selectedViewMode: "class",
   selectedClassId: "",
   selectedTeacherId: "",
@@ -49,9 +50,10 @@ async function loadTeachers() { state.teachers = await api("/teachers"); }
 async function loadSubjects() { state.subjects = await api("/subjects"); }
 async function loadSlots() { state.slots = await api("/slots"); }
 async function loadSchedule() { state.schedule = await api("/schedule"); }
+async function loadConditions() { state.conditions = await api("/conditions"); }
 
 async function loadAllData() {
-  await Promise.all([loadClasses(), loadTeachers(), loadSubjects(), loadSlots(), loadSchedule()]);
+  await Promise.all([loadClasses(), loadTeachers(), loadSubjects(), loadSlots(), loadSchedule(), loadConditions()]);
 }
 
 function setButtonLoading(button, loading, label) {
@@ -92,6 +94,14 @@ function renderSlots() {
   const list = el("slots-list");
   list.innerHTML = state.slots.length ? state.slots.map((slot) => `<li>${slot}</li>`).join("") : "<li>Aucun créneau.</li>";
   el("count-slots").textContent = state.slots.length;
+}
+
+
+function renderConditions() {
+  const list = el("conditions-list");
+  list.innerHTML = state.conditions.length
+    ? state.conditions.map((c) => `<li>${c.condition_type} — ${c.text}</li>`).join("")
+    : "<li>Aucune condition.</li>";
 }
 
 function renderScheduleFilters() {
@@ -168,6 +178,7 @@ function renderAll() {
   renderSubjects();
   renderSlots();
   renderScheduleFilters();
+  renderConditions();
   renderSchedule();
 }
 
@@ -208,6 +219,66 @@ async function loadDemoData() {
   }
 }
 
+
+async function loadLargeDemoData() {
+  const button = el("load-large-demo-btn");
+  setButtonLoading(button, true, "Chargement...");
+  try {
+    await api("/schedule/load-large-demo", { method: "POST" });
+    await loadAllData();
+    showMessage("Grosse démo chargée.", "success");
+  } catch (error) {
+    handleError(error, "Impossible de charger la grosse démo");
+  } finally {
+    setButtonLoading(button, false);
+    renderAll();
+  }
+}
+
+async function clearData() {
+  const button = el("clear-data-btn");
+  setButtonLoading(button, true, "Nettoyage...");
+  try {
+    await api("/schedule/clear", { method: "POST" });
+    await loadAllData();
+    showMessage("Données effacées.", "success");
+  } catch (error) {
+    handleError(error, "Impossible de vider les données");
+  } finally {
+    setButtonLoading(button, false);
+    renderAll();
+  }
+}
+
+async function createCondition() {
+  const payload = {
+    text: el("condition-text").value.trim(),
+    condition_type: el("condition-type").value,
+    teacher_name: el("condition-teacher").value.trim() || null,
+    class_name: el("condition-class").value.trim() || null,
+    subject_name: el("condition-subject").value.trim() || null,
+    slot: el("condition-slot").value.trim() || null,
+  };
+  await api("/conditions", { method: "POST", body: JSON.stringify(payload) });
+  await loadAllData();
+  renderAll();
+}
+
+async function saveTimeSettings() {
+  const payload = {
+    day_start_time: el("day-start-time").value,
+    day_end_time: el("day-end-time").value,
+    lesson_duration_minutes: Number(el("lesson-duration").value),
+    break_duration_minutes: Number(el("break-duration").value),
+    working_days: el("working-days").value.split(",").map((x) => x.trim()).filter(Boolean),
+    lunch_break_start: null,
+    lunch_break_end: null,
+  };
+  await api("/time-settings", { method: "POST", body: JSON.stringify(payload) });
+  await loadAllData();
+  renderAll();
+}
+
 async function handleCreate(path, payload) {
   await api(path, { method: "POST", body: JSON.stringify(payload) });
   await loadAllData();
@@ -239,11 +310,44 @@ function initApp() {
   el("schedule-search").addEventListener("input", (e) => { state.searchQuery = e.target.value.trim(); renderSchedule(); });
   el("generate-btn").addEventListener("click", generateSchedule);
   el("load-demo-btn").addEventListener("click", loadDemoData);
+  el("load-large-demo-btn").addEventListener("click", loadLargeDemoData);
+  el("clear-data-btn").addEventListener("click", clearData);
 
   bindForm("class-form", "/classes", () => ({ name: el("class-name").value.trim(), max_lessons_per_day: Number(el("class-max-lessons").value) }));
   bindForm("teacher-form", "/teachers", () => ({ name: el("teacher-name").value.trim(), subjects: el("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: [], max_lessons_per_day: Number(el("teacher-max-lessons").value) }));
   bindForm("subject-form", "/subjects", () => ({ name: el("subject-name").value.trim(), hours_per_week: Number(el("subject-hours").value) }));
   bindForm("slot-form", "/slots", () => ({ slot: el("slot-value").value.trim() }));
+
+  const conditionForm = el("condition-form");
+  conditionForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = conditionForm.querySelector("button[type='submit']");
+    setButtonLoading(button, true, "Ajout...");
+    try {
+      await createCondition();
+      conditionForm.reset();
+      showMessage("Condition ajoutée.", "success");
+    } catch (error) {
+      handleError(error, "Erreur lors de l'ajout de la condition");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
+
+  const timeForm = el("time-settings-form");
+  timeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = timeForm.querySelector("button[type='submit']");
+    setButtonLoading(button, true, "Application...");
+    try {
+      await saveTimeSettings();
+      showMessage("Paramètres horaires enregistrés.", "success");
+    } catch (error) {
+      handleError(error, "Erreur de paramètres horaires");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
 }
 
 (async () => {

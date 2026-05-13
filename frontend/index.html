@@ -13,8 +13,10 @@
           <h1>School Scheduler</h1>
           <p>Génération automatique d’emplois du temps</p>
         </div>
-        <div class="actions">
+        <div class="actions actions-wide">
+          <button id="clear-data-btn">Vider les données</button>
           <button id="load-demo-btn">Charger démo</button>
+          <button id="load-large-demo-btn">Charger grosse démo</button>
           <button id="generate-btn" class="primary">Générer emploi du temps</button>
         </div>
       </header>
@@ -27,55 +29,48 @@
       </section>
 
       <section class="forms-grid">
-        <form id="class-form" class="panel">
-          <h3>Classes</h3>
-          <input id="class-name" placeholder="Nom de classe" required />
-          <input id="class-max-lessons" type="number" min="1" value="6" required />
-          <button type="submit">Ajouter</button>
-          <ul id="classes-list"></ul>
+        <form id="class-form" class="panel"><h3>Classes</h3><input id="class-name" placeholder="Nom de classe" required /><input id="class-max-lessons" type="number" min="1" value="6" required /><button type="submit">Ajouter</button><ul id="classes-list"></ul></form>
+        <form id="teacher-form" class="panel"><h3>Professeurs</h3><input id="teacher-name" placeholder="Nom du professeur" required /><input id="teacher-subjects" placeholder="Matières séparées par virgule" required /><input id="teacher-max-lessons" type="number" min="1" value="6" required /><button type="submit">Ajouter</button><ul id="teachers-list"></ul></form>
+        <form id="subject-form" class="panel"><h3>Matières</h3><input id="subject-name" placeholder="Matière" required /><input id="subject-hours" type="number" min="1" placeholder="Heures/semaine" required /><button type="submit">Ajouter</button><ul id="subjects-list"></ul></form>
+        <form id="slot-form" class="panel"><h3>Créneaux horaires</h3><input id="slot-value" placeholder="Ex: Mon-08:00" required /><button type="submit">Ajouter</button><ul id="slots-list"></ul></form>
+      </section>
+
+      <section class="forms-grid">
+        <form id="time-settings-form" class="panel">
+          <h3>Paramètres horaires</h3>
+          <input id="day-start-time" type="time" value="08:00" required />
+          <input id="day-end-time" type="time" value="16:00" required />
+          <input id="lesson-duration" type="number" min="1" value="55" required />
+          <input id="break-duration" type="number" min="0" value="10" required />
+          <input id="working-days" placeholder="Mon,Tue,Wed,Thu,Fri" value="Mon,Tue,Wed,Thu,Fri" required />
+          <button type="submit">Appliquer et générer les créneaux</button>
         </form>
-        <form id="teacher-form" class="panel">
-          <h3>Professeurs</h3>
-          <input id="teacher-name" placeholder="Nom du professeur" required />
-          <input id="teacher-subjects" placeholder="Matières séparées par virgule" required />
-          <input id="teacher-max-lessons" type="number" min="1" value="6" required />
-          <button type="submit">Ajouter</button>
-          <ul id="teachers-list"></ul>
-        </form>
-        <form id="subject-form" class="panel">
-          <h3>Matières</h3>
-          <input id="subject-name" placeholder="Matière" required />
-          <input id="subject-hours" type="number" min="1" placeholder="Heures/semaine" required />
-          <button type="submit">Ajouter</button>
-          <ul id="subjects-list"></ul>
-        </form>
-        <form id="slot-form" class="panel">
-          <h3>Créneaux horaires</h3>
-          <input id="slot-value" placeholder="Ex: Mon-08:00" required />
-          <button type="submit">Ajouter</button>
-          <ul id="slots-list"></ul>
+
+        <form id="condition-form" class="panel">
+          <h3>Conditions</h3>
+          <input id="condition-text" placeholder="Description de la condition" required />
+          <select id="condition-type">
+            <option value="teacher_unavailable">Prof indisponible sur créneau</option>
+            <option value="class_unavailable">Classe indisponible sur créneau</option>
+            <option value="subject_morning_preference">Matière de préférence le matin</option>
+            <option value="avoid_subject_repeat">Éviter répétition matière</option>
+          </select>
+          <input id="condition-teacher" placeholder="Professeur (optionnel selon type)" />
+          <input id="condition-class" placeholder="Classe (optionnel selon type)" />
+          <input id="condition-subject" placeholder="Matière (optionnel selon type)" />
+          <input id="condition-slot" placeholder="Créneau (optionnel selon type)" />
+          <button type="submit">Ajouter condition</button>
+          <ul id="conditions-list"></ul>
         </form>
       </section>
 
       <section class="panel">
         <h2>Résultat généré</h2>
         <div class="schedule-controls">
-          <div>
-            <label for="schedule-view-mode">Mode</label>
-            <select id="schedule-view-mode"><option value="class">Vue classe</option><option value="teacher">Vue professeur</option></select>
-          </div>
-          <div id="schedule-class-group">
-            <label for="schedule-class-filter">Classe</label>
-            <select id="schedule-class-filter"></select>
-          </div>
-          <div id="schedule-teacher-group" class="hidden">
-            <label for="schedule-teacher-filter">Professeur</label>
-            <select id="schedule-teacher-filter"></select>
-          </div>
-          <div>
-            <label for="schedule-search">Recherche</label>
-            <input id="schedule-search" type="search" placeholder="matière, classe, professeur" />
-          </div>
+          <div><label for="schedule-view-mode">Mode</label><select id="schedule-view-mode"><option value="class">Vue classe</option><option value="teacher">Vue professeur</option></select></div>
+          <div id="schedule-class-group"><label for="schedule-class-filter">Classe</label><select id="schedule-class-filter"></select></div>
+          <div id="schedule-teacher-group" class="hidden"><label for="schedule-teacher-filter">Professeur</label><select id="schedule-teacher-filter"></select></div>
+          <div><label for="schedule-search">Recherche</label><input id="schedule-search" type="search" placeholder="matière, classe, professeur" /></div>
         </div>
         <p id="schedule-empty-message" class="hint"></p>
         <div class="table-wrap"><table id="schedule-table"></table></div>
