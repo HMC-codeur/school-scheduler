@@ -1,5 +1,8 @@
 from collections import defaultdict
 from dataclasses import dataclass
+import hashlib
+import json
+import random
 from time import perf_counter
 
 from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
@@ -26,6 +29,26 @@ class SchedulerService:
     STRATEGY_BALANCED = "balanced"
     STRATEGY_AVOID_REPEATS = "avoid_repeats"
     STRATEGY_CONTINUOUS = "continuous"
+
+    @staticmethod
+    def _schedule_signature(schedule: dict[str, dict[str, ScheduleCell]]) -> str:
+        normalized = {
+            slot: {class_name: cell.model_dump() for class_name, cell in entries.items()}
+            for slot, entries in schedule.items()
+        }
+        payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+
+    @staticmethod
+    def _build_option_description(metrics: dict) -> str:
+        return (
+            f"Score {metrics.get('quality_score', '--')}/100 · "
+            f"conflits {metrics.get('conflicts_count', 0)} · "
+            f"trous {metrics.get('gaps_count', 0)} · "
+            f"répétitions {metrics.get('repeated_subjects_count', 0)} · "
+            f"séquences longues {metrics.get('long_sequences_count', 0)} · "
+            f"équilibrage {metrics.get('load_balance_status', '-')}"
+        )
 
     @staticmethod
     def generate(
@@ -566,29 +589,53 @@ class SchedulerService:
         conditions: list[Condition] | None = None,
     ) -> list[dict]:
         option_defs = [
-            (SchedulerService.STRATEGY_BALANCED, "option-1", "Option 1", "Option équilibrée générale."),
-            (SchedulerService.STRATEGY_AVOID_REPEATS, "option-2", "Option 2", "Option qui évite davantage les répétitions de matière."),
-            (SchedulerService.STRATEGY_CONTINUOUS, "option-3", "Option 3", "Option qui favorise une meilleure continuité avec moins de trous."),
+            (SchedulerService.STRATEGY_BALANCED, "option-1", "Option 1", 1),
+            (SchedulerService.STRATEGY_AVOID_REPEATS, "option-2", "Option 2", 2),
+            (SchedulerService.STRATEGY_CONTINUOUS, "option-3", "Option 3", 3),
         ]
         options: list[dict] = []
-        for strategy, option_id, label, short_description in option_defs:
-            result = SchedulerService.generate(classes, teachers, subjects, slots, conditions, strategy=strategy)
+        for strategy, option_id, label, seed in option_defs:
+            rng = random.Random(seed)
+            shuffled_classes = list(classes)
+            shuffled_subjects = list(subjects)
+            shuffled_slots = list(slots)
+            shuffled_teachers = []
+            rng.shuffle(shuffled_classes)
+            rng.shuffle(shuffled_subjects)
+            rng.shuffle(shuffled_slots)
+            for teacher in teachers:
+                teacher_subjects = list(teacher.subjects)
+                rng.shuffle(teacher_subjects)
+                shuffled_teachers.append(teacher.model_copy(update={"subjects": teacher_subjects}))
+            rng.shuffle(shuffled_teachers)
+
+            result = SchedulerService.generate(
+                shuffled_classes, shuffled_teachers, shuffled_subjects, shuffled_slots, conditions, strategy=strategy
+            )
             if not result.success:
-                return []
+                continue
+            metrics = {
+                "quality_score": result.quality_score,
+                "conflicts_count": result.conflicts_count,
+                "gaps_count": result.gaps_count,
+                "repeated_subjects_count": result.repeated_subjects_count,
+                "long_sequences_count": result.long_sequences_count,
+                "load_balance_status": result.load_balance_status,
+            }
             options.append(
                 {
                     "id": option_id,
                     "label": label,
                     "schedule": result.schedule,
-                    "quality_score": result.quality_score,
-                    "conflicts_count": result.conflicts_count,
-                    "gaps_count": result.gaps_count,
-                    "repeated_subjects_count": result.repeated_subjects_count,
-                    "long_sequences_count": result.long_sequences_count,
-                    "load_balance_status": result.load_balance_status,
+                    **metrics,
                     "score_breakdown": result.score_breakdown or [],
-                    "short_description": short_description,
+                    "description": SchedulerService._build_option_description(metrics),
+                    "schedule_signature": SchedulerService._schedule_signature(result.schedule),
                     "message": result.message,
                 }
             )
+        signatures = {option["schedule_signature"] for option in options}
+        if len(signatures) == 1 and options:
+            for option in options:
+                option["description"] = f"{option['description']} · Aucune variante différente trouvée avec les données actuelles."
         return options
