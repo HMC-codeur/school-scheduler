@@ -73,38 +73,51 @@ class SlotCreate(BaseModel):
 
 
 class ConditionCreate(BaseModel):
-    text: str = Field(min_length=1)
+    text: str | None = Field(default=None, min_length=1)
+    description: str | None = Field(default=None, min_length=1)
     condition_type: Literal[
         "teacher_unavailable",
         "class_unavailable",
         "subject_morning_preference",
         "avoid_subject_repeat",
     ] = "teacher_unavailable"
+    type: str | None = None
     teacher_name: str | None = None
     class_name: str | None = None
     subject_name: str | None = None
     slot: str | None = None
+    target_id: str | None = None
+    slot_id: str | None = None
+    hard: bool = True
 
     @model_validator(mode="after")
-    def validate_by_type(self) -> "ConditionCreate":
+    def normalize_and_validate(self) -> "ConditionCreate":
+        if self.type and not self.condition_type:
+            self.condition_type = self.type
+
+        self.text = (self.text or self.description or "").strip()
+        if not self.text:
+            raise ValueError("text or description is required")
+
+        if self.slot_id and not self.slot:
+            self.slot = self.slot_id
+
+        target = (self.target_id or "").strip() or None
         if self.condition_type == "teacher_unavailable":
+            self.teacher_name = (self.teacher_name or target or "").strip() or None
             if not self.teacher_name or not self.slot:
-                raise ValueError("teacher_name and slot are required for teacher_unavailable")
+                raise ValueError("teacher_name (or target_id) and slot (or slot_id) are required for teacher_unavailable")
         elif self.condition_type == "class_unavailable":
+            self.class_name = (self.class_name or target or "").strip() or None
             if not self.class_name or not self.slot:
-                raise ValueError("class_name and slot are required for class_unavailable")
-        elif self.condition_type == "subject_morning_preference":
+                raise ValueError("class_name (or target_id) and slot (or slot_id) are required for class_unavailable")
+        elif self.condition_type in {"subject_morning_preference", "avoid_subject_repeat"}:
+            self.subject_name = (self.subject_name or target or "").strip() or None
             if not self.subject_name:
-                raise ValueError("subject_name is required for subject_morning_preference")
-        elif self.condition_type == "avoid_subject_repeat":
-            if not self.subject_name:
-                raise ValueError("subject_name is required for avoid_subject_repeat")
+                raise ValueError("subject_name (or target_id) is required for this condition type")
+
         return self
 
-    @field_validator("text")
-    @classmethod
-    def validate_text(cls, value: str) -> str:
-        return _strip_and_validate(value, "text")
 
 
 class Condition(ConditionCreate):
