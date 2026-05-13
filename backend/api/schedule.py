@@ -25,7 +25,19 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         store.classes, store.teachers, store.subjects, store.slots, store.conditions
     )
     if not store.schedule_options:
-        store.schedule_options = [{"id": "option-1", "label": "Option 1", "schedule": result.schedule, "quality_score": result.quality_score, "message": result.message, "score_breakdown": result.score_breakdown or []}]
+        store.schedule_options = [{
+            "id": "option-1",
+            "label": "Option 1",
+            "schedule": result.schedule,
+            "quality_score": result.quality_score,
+            "conflicts_count": result.conflicts_count,
+            "gaps_count": result.gaps_count,
+            "repeated_subjects_count": result.repeated_subjects_count,
+            "long_sequences_count": result.long_sequences_count,
+            "load_balance_status": result.load_balance_status,
+            "message": result.message,
+            "score_breakdown": result.score_breakdown or [],
+        }]
     best_option = max(store.schedule_options, key=lambda option: option.get("quality_score") or 0)
     store.selected_schedule_option_id = best_option.get("id")
     store.schedule = best_option["schedule"]
@@ -33,13 +45,13 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         success=True,
         message=result.message,
         schedule=store.schedule,
-        quality_score=result.quality_score,
-        conflicts_count=result.conflicts_count,
-        gaps_count=result.gaps_count,
-        repeated_subjects_count=result.repeated_subjects_count,
-        long_sequences_count=result.long_sequences_count,
-        load_balance_status=result.load_balance_status,
-        score_breakdown=result.score_breakdown,
+        quality_score=best_option.get("quality_score"),
+        conflicts_count=best_option.get("conflicts_count"),
+        gaps_count=best_option.get("gaps_count"),
+        repeated_subjects_count=best_option.get("repeated_subjects_count"),
+        long_sequences_count=best_option.get("long_sequences_count"),
+        load_balance_status=best_option.get("load_balance_status"),
+        score_breakdown=best_option.get("score_breakdown"),
         required_sessions=result.required_sessions,
         scheduled_sessions=result.scheduled_sessions,
         generation_time_ms=result.generation_time_ms,

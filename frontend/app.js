@@ -238,6 +238,9 @@ function renderQualityMetrics(metrics) {
 function renderScoreBreakdown(metrics) {
   const root = $("score-breakdown-list");
   const breakdown = Array.isArray(metrics?.score_breakdown) ? metrics.score_breakdown : [];
+  $("score-debug-option").textContent = scheduleState.selectedOptionId || "-";
+  $("score-debug-items").textContent = String(breakdown.length);
+  $("score-debug-received").textContent = Number.isFinite(Number(metrics?.quality_score)) ? String(Number(metrics.quality_score)) : "--";
   if (!breakdown.length) {
     root.replaceChildren(create("li", "Aucun détail de score disponible.", "hint"));
     return;
@@ -367,7 +370,7 @@ async function refreshScheduleTable() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.scheduleOptions[0]?.id || null;
   const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
   renderQualityMetrics(selected || {});
   renderScoreBreakdown(selected || {});
@@ -408,13 +411,14 @@ async function refresh() {
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.scheduleOptions[0]?.id || null;
   renderScheduleOptions();
 
   populateScheduleFilters();
   renderScheduleTableFromState();
-  renderQualityMetrics({});
-  renderScoreBreakdown({});
+  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected || {});
   updateConditionFieldVisibility();
 }
 
