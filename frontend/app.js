@@ -23,7 +23,8 @@ const create = (tag, text, className) => {
   return el;
 };
 
-async function api(path, options = {}) {
+async function api(path, requestOptions) {
+  const options = requestOptions || {};
   const response = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -137,15 +138,13 @@ function populateUnavailableSlots(slots) {
   }));
   Array.from(select.options).forEach((opt) => { opt.selected = currentSelection.has(opt.value); });
 
-  const conditionSlot = $("condition-slot");
-  const defaultOpt = create("option", "Choisir un créneau");
-  defaultOpt.value = "";
+  const conditionSlotOptions = $("condition-slot-options");
   const opts = slots.map((slot) => {
-    const opt = create("option", slot);
+    const opt = create("option");
     opt.value = slot;
     return opt;
   });
-  conditionSlot.replaceChildren(defaultOpt, ...opts);
+  conditionSlotOptions.replaceChildren(...opts);
   updateUnavailableSlotsSummary();
 }
 
@@ -308,13 +307,13 @@ function renderScheduleTableFromState() {
 }
 
 async function refreshScheduleTable() {
-  const [classes, slots, schedule, teachers, options] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
+  const [classes, slots, schedule, teachers, scheduleOptions] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.slots = slots;
   scheduleState.schedule = schedule || {};
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
   populateScheduleFilters();
   renderScheduleTableFromState();
@@ -448,22 +447,31 @@ function bindForms() {
     const condition_type = $("condition-type").value;
     const description = $("condition-text").value.trim();
     const payload = { condition_type, text: description, description, hard: true };
+
     if (condition_type === "teacher_unavailable") {
       payload.teacher_name = $("condition-teacher-name").value.trim();
-      payload.target_id = payload.teacher_name;
       payload.slot = $("condition-slot").value;
+      if (!payload.teacher_name) throw new Error("Veuillez saisir un professeur pour cette condition.");
+      if (!payload.slot) throw new Error("Veuillez choisir un créneau pour cette condition.");
+      payload.target_id = payload.teacher_name;
       payload.slot_id = payload.slot;
     }
+
     if (condition_type === "class_unavailable") {
       payload.class_name = $("condition-class-name").value.trim();
-      payload.target_id = payload.class_name;
       payload.slot = $("condition-slot").value;
+      if (!payload.class_name) throw new Error("Veuillez saisir une classe pour cette condition.");
+      if (!payload.slot) throw new Error("Veuillez choisir un créneau pour cette condition.");
+      payload.target_id = payload.class_name;
       payload.slot_id = payload.slot;
     }
+
     if (condition_type === "subject_morning_preference" || condition_type === "avoid_subject_repeat") {
       payload.subject_name = $("condition-subject-name").value.trim();
+      if (!payload.subject_name) throw new Error("Veuillez saisir une matière pour cette condition.");
       payload.target_id = payload.subject_name;
     }
+
     if (condition_type === "avoid_subject_repeat") payload.class_name = $("condition-class-name").value.trim() || null;
     return payload;
   });
