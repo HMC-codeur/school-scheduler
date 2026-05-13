@@ -205,6 +205,14 @@ function syncScheduleFiltersUI() {
   $("schedule-teacher-filter").disabled = isClassView;
 }
 
+function applyScheduleOptions(scheduleOptions) {
+  const normalizedOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
+  const previousSelectedId = scheduleState.selectedOptionId;
+  scheduleState.scheduleOptions = normalizedOptions;
+  const stillExists = normalizedOptions.some((option) => option?.id === previousSelectedId);
+  scheduleState.selectedOptionId = stillExists ? previousSelectedId : (normalizedOptions[0]?.id || null);
+}
+
 function renderQualityMetrics(metrics) {
   const card = $("quality-card");
   const hasMetrics = Number.isFinite(metrics?.quality_score);
@@ -304,21 +312,33 @@ function renderScheduleTableFromState() {
 }
 
 async function refreshScheduleTable() {
-  const [classes, slots, schedule, teachers, options] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
+  const [classes, slots, schedule, teachers, scheduleOptions] = await Promise.all([
+    api("/classes"),
+    api("/slots"),
+    api("/schedule"),
+    api("/teachers"),
+    api("/schedule/options").catch(() => []),
+  ]);
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.slots = slots;
   scheduleState.schedule = schedule || {};
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  applyScheduleOptions(scheduleOptions);
   populateScheduleFilters();
   renderScheduleTableFromState();
 }
 
 async function refresh() {
-  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([
-    api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule"), api("/conditions"), api("/time-settings"),
+  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings, scheduleOptions] = await Promise.all([
+    api("/classes"),
+    api("/subjects"),
+    api("/teachers"),
+    api("/slots"),
+    api("/schedule"),
+    api("/conditions"),
+    api("/time-settings"),
+    api("/schedule/options").catch(() => []),
   ]);
 
   $("count-classes").textContent = classes.length;
@@ -340,8 +360,7 @@ async function refresh() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  applyScheduleOptions(scheduleOptions);
 
   populateScheduleFilters();
   renderScheduleTableFromState();
