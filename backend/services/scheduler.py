@@ -57,25 +57,31 @@ class SchedulerService:
         subject_hours = {s.name: s.hours_per_week for s in subjects}
         total_required_sessions = len(classes) * sum(subject_hours.values())
         total_available_sessions = len(classes) * len(slots)
-        if total_required_sessions > total_available_sessions:
+
+        def failed_result(message: str) -> ScheduleResult:
+            generation_time_ms = int((perf_counter() - started_at) * 1000)
             return ScheduleResult(
                 False,
-                "Cannot generate schedule: not enough slots for all required subject hours.",
+                message,
                 {},
+                required_sessions=total_required_sessions,
+                scheduled_sessions=0,
+                generation_time_ms=generation_time_ms,
             )
+
+        if total_required_sessions > total_available_sessions:
+            return failed_result("Cannot generate schedule: not enough slots for all required subject hours.")
 
         weekly_hours_per_class = sum(subject_hours.values())
         for class_obj in classes:
             class_daily_limit = max(1, getattr(class_obj, "max_lessons_per_day", default_max_lessons_per_class_per_day))
             class_weekly_capacity = len(days) * class_daily_limit
             if weekly_hours_per_class > class_weekly_capacity:
-                return ScheduleResult(
-                    False,
+                return failed_result(
                     (
                         f"Cannot generate schedule: class '{class_obj.name}' daily max is too low for weekly requirements "
                         f"({weekly_hours_per_class} required, {class_weekly_capacity} max capacity)."
-                    ),
-                    {},
+                    )
                 )
 
         teachers_by_subject: dict[str, list[Teacher]] = defaultdict(list)
@@ -85,11 +91,7 @@ class SchedulerService:
 
         for subject_name in subject_hours:
             if not teachers_by_subject.get(subject_name):
-                return ScheduleResult(
-                    False,
-                    f"Cannot generate schedule: subject '{subject_name}' has no teacher assigned.",
-                    {},
-                )
+                return failed_result(f"Cannot generate schedule: subject '{subject_name}' has no teacher assigned.")
 
         teacher_by_name = {t.name: t for t in teachers}
         class_by_name = {c.name: c for c in classes}
@@ -126,10 +128,28 @@ class SchedulerService:
             teacher_weekly_capacity = len(days) * teacher_daily_limit
             capped_capacity = min(len(available_slots), teacher_weekly_capacity)
             if capped_capacity <= 0 and teacher.subjects:
-                return ScheduleResult(
-                    False,
-                    f"Cannot generate schedule: teacher '{teacher.name}' has no available slots.",
-                    {},
+                return failed_result(f"Cannot generate schedule: teacher '{teacher.name}' has no available slots.")
+
+        subject_demand = {subject_name: len(classes) * hours for subject_name, hours in subject_hours.items()}
+        subject_supply: dict[str, int] = defaultdict(int)
+        for subject_name, subject_teachers in teachers_by_subject.items():
+            for teacher in subject_teachers:
+                available_slots = [slot for slot in slots if slot not in teacher_unavailable[teacher.id]]
+                teacher_daily_limit = max(
+                    1,
+                    getattr(teacher, "max_lessons_per_day", default_max_lessons_per_teacher_per_day),
+                )
+                teacher_weekly_capacity = len(days) * teacher_daily_limit
+                subject_supply[subject_name] += min(len(available_slots), teacher_weekly_capacity)
+
+        for subject_name, demand in subject_demand.items():
+            supply = subject_supply.get(subject_name, 0)
+            if supply < demand:
+                return failed_result(
+                    (
+                        f"Cannot generate schedule: insufficient teacher capacity for subject '{subject_name}' "
+                        f"(demand={demand}, supply={supply})."
+                    )
                 )
 
         sessions: list[tuple[Class, str]] = []
