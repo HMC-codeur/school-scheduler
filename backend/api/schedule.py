@@ -27,6 +27,9 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         repeated_subjects_count=result.repeated_subjects_count,
         long_sequences_count=result.long_sequences_count,
         load_balance_status=result.load_balance_status,
+        required_sessions=result.required_sessions,
+        scheduled_sessions=result.scheduled_sessions,
+        generation_time_ms=result.generation_time_ms,
     )
 
 
