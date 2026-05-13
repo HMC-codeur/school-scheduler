@@ -30,7 +30,11 @@ async function api(path, options = {}) {
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Request failed");
+    const detail = err?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((item) => `${(item.loc || []).join(".")}: ${item.msg}`).join(" | ")
+      : (typeof detail === "string" ? detail : (err.message || "Request failed"));
+    throw new Error(message);
   }
   return response.json().catch(() => ({}));
 }
@@ -151,7 +155,7 @@ function renderConditionsList(conditions) {
 
   const items = conditions.map((condition) => {
     const li = create("li", undefined, "conditions-item");
-    const span = create("span", condition.text);
+    const span = create("span", `${condition.text || condition.description || "Condition"} [${condition.condition_type}]${condition.hard === false ? " (préférence)" : " (obligatoire)"}`);
     const btn = create("button", "Supprimer", "danger");
     btn.dataset.id = String(condition.id);
     li.append(span, btn);
@@ -442,11 +446,25 @@ function bindForms() {
   bindSubmit("slot-form", "/slots", () => ({ slot: $("slot-value").value.trim() }));
   bindSubmit("condition-form", "/conditions", () => {
     const condition_type = $("condition-type").value;
-    const payload = { condition_type, text: $("condition-text").value.trim(), teacher_name: null, class_name: null, subject_name: null, slot: null };
-    if (condition_type === "teacher_unavailable") { payload.teacher_name = $("condition-teacher-name").value.trim(); payload.slot = $("condition-slot").value; }
-    if (condition_type === "class_unavailable") { payload.class_name = $("condition-class-name").value.trim(); payload.slot = $("condition-slot").value; }
-    if (condition_type === "subject_morning_preference") payload.subject_name = $("condition-subject-name").value.trim();
-    if (condition_type === "avoid_subject_repeat") { payload.subject_name = $("condition-subject-name").value.trim(); payload.class_name = $("condition-class-name").value.trim() || null; }
+    const description = $("condition-text").value.trim();
+    const payload = { condition_type, text: description, description, hard: true };
+    if (condition_type === "teacher_unavailable") {
+      payload.teacher_name = $("condition-teacher-name").value.trim();
+      payload.target_id = payload.teacher_name;
+      payload.slot = $("condition-slot").value;
+      payload.slot_id = payload.slot;
+    }
+    if (condition_type === "class_unavailable") {
+      payload.class_name = $("condition-class-name").value.trim();
+      payload.target_id = payload.class_name;
+      payload.slot = $("condition-slot").value;
+      payload.slot_id = payload.slot;
+    }
+    if (condition_type === "subject_morning_preference" || condition_type === "avoid_subject_repeat") {
+      payload.subject_name = $("condition-subject-name").value.trim();
+      payload.target_id = payload.subject_name;
+    }
+    if (condition_type === "avoid_subject_repeat") payload.class_name = $("condition-class-name").value.trim() || null;
     return payload;
   });
   bindSubmit("time-settings-form", "/time-settings", () => ({
