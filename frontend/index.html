@@ -10,10 +10,16 @@
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">School Scheduler</p>
-          <h1>Planification scolaire simplifiée</h1>
+          <p class="eyebrow">EduPlan AI · School Scheduler</p>
+          <h1>Dashboard de planification scolaire</h1>
+          <p class="topbar-help">Génération intelligente d'emplois du temps</p>
         </div>
-        <p class="topbar-help">Configurez vos données en 4 étapes puis générez l'emploi du temps.</p>
+        <section class="actions top-actions">
+          <button id="load-demo-btn">Charger démo</button>
+          <button id="load-large-demo-btn">Grosse démo</button>
+          <button id="generate-btn" class="primary">Générer</button>
+          <button id="clear-btn" class="danger">Vider</button>
+        </section>
       </header>
 
       <div class="dashboard-layout">
@@ -100,7 +106,7 @@
           </section>
 
           <section class="panel step" id="step-3">
-            <h2>Étape 3 · Ajouter des conditions</h2>
+            <h2>Conditions et contraintes</h2>
             <form id="condition-form" class="inline-form" data-success-message="Condition ajoutée.">
               <h3>Ajouter une condition</h3>
               <label for="condition-type">Type de condition</label>
@@ -128,14 +134,8 @@
           </section>
 
           <section class="panel step" id="step-4">
-            <h2>Étape 4 · Générer l'emploi du temps</h2>
-            <p class="hint">Vous pouvez charger des données démo, vider ou lancer la génération finale.</p>
-            <section class="actions">
-              <button id="load-demo-btn">Charger des données démo</button>
-              <button id="load-large-demo-btn">Charger une grosse démo</button>
-              <button id="clear-btn" class="danger">Vider toutes les données</button>
-              <button id="generate-btn" class="primary">Générer l'emploi du temps</button>
-            </section>
+            <h2>Zone de génération</h2>
+            <p class="hint">Chargez une base de données de démonstration ou lancez la génération finale.</p>
             <p id="demo-summary" class="hint">Aucune démo volumineuse chargée.</p>
             <p id="generation-status" class="generation-status">Aucune génération lancée pour le moment.</p>
           </section>
