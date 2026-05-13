@@ -35,3 +35,15 @@ def test_generate_schedule_non_regression_success():
     slots = ["Mon-08:00"]
     response = SchedulerService.generate(classes, teachers, subjects, slots)
     assert response.success is True
+
+
+def test_condition_type_alias_is_honored():
+    payload = {
+        "type": "class_unavailable",
+        "text": "Classe indisponible",
+        "class_name": "6A",
+        "slot": "Mon-08:00",
+    }
+    condition = __import__("backend.models.schemas", fromlist=["ConditionCreate"]).ConditionCreate(**payload)
+    assert condition.condition_type == "class_unavailable"
+    assert condition.class_name == "6A"
