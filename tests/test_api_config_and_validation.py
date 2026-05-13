@@ -2,7 +2,7 @@ import importlib
 
 import pytest
 
-from backend.models.schemas import ClassCreate, SubjectCreate
+from backend.models.schemas import ClassCreate, SubjectCreate, TeacherCreate
 from backend.models.schemas import Class, Subject, Teacher
 from backend.services.scheduler import SchedulerService
 
@@ -47,3 +47,13 @@ def test_condition_type_alias_is_honored():
     condition = __import__("backend.models.schemas", fromlist=["ConditionCreate"]).ConditionCreate(**payload)
     assert condition.condition_type == "class_unavailable"
     assert condition.class_name == "6A"
+
+
+def test_teacher_subjects_are_trimmed_and_deduplicated():
+    teacher = TeacherCreate(name="T1", subjects=[" Math ", "Physics", "Math", " Physics "])
+    assert teacher.subjects == ["Math", "Physics"]
+
+
+def test_teacher_subjects_reject_empty_entries():
+    with pytest.raises(Exception):
+        TeacherCreate(name="T1", subjects=["Math", "   "])

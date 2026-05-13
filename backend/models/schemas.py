@@ -12,6 +12,18 @@ def _strip_and_validate(value: str, field_name: str) -> str:
     return cleaned
 
 
+def _normalize_string_list(values: list[str], field_name: str) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = _strip_and_validate(value, field_name)
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
+
 class ClassCreate(BaseModel):
     name: str = Field(min_length=1)
     max_lessons_per_day: int = Field(default=6, ge=1)
@@ -39,6 +51,11 @@ class TeacherCreate(BaseModel):
     def validate_name(cls, value: str) -> str:
         return _strip_and_validate(value, "name")
 
+    @field_validator("subjects")
+    @classmethod
+    def validate_subjects(cls, value: list[str]) -> list[str]:
+        return _normalize_string_list(value, "subjects")
+
 
 class Teacher(BaseModel):
     id: int
@@ -46,6 +63,11 @@ class Teacher(BaseModel):
     subjects: list[str]
     unavailable_slots: list[str] = Field(default_factory=list)
     max_lessons_per_day: int = Field(default=6, ge=1)
+
+    @field_validator("subjects")
+    @classmethod
+    def validate_subjects(cls, value: list[str]) -> list[str]:
+        return _normalize_string_list(value, "subjects")
 
 
 class SubjectCreate(BaseModel):
