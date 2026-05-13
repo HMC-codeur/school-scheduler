@@ -138,3 +138,10 @@ th.slot-col { z-index: 3; }
 .generation-status[data-level="loading"] { border-style: solid; border-color: #c9d6ff; color: #28469b; background: #eef3ff; }
 .generation-status[data-level="success"] { border-style: solid; border-color: #8ed8ad; color: #145c33; background: #edf9f2; }
 .generation-status[data-level="error"] { border-style: solid; border-color: #f2a2a2; color: #9a2424; background: #fff0f0; }
+
+.schedule-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; margin: 12px 0; }
+.schedule-option-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: #fff; }
+.schedule-option-card.selected { border-color: #6b8cff; box-shadow: 0 0 0 2px #e9efff inset; }
+.schedule-option-card h4 { margin: 0 0 6px; }
+.schedule-option-card p { margin: 0 0 8px; font-size: .92rem; color: var(--muted); }
+.schedule-option-card button { width: 100%; }

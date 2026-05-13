@@ -233,6 +233,39 @@ function renderQualityMetrics(metrics) {
   $("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
 }
 
+async function selectScheduleOption(optionId) {
+  await api(`/schedule/options/${encodeURIComponent(optionId)}/select`, { method: "POST" });
+  scheduleState.selectedOptionId = optionId;
+  const selected = scheduleState.scheduleOptions.find((option) => option.id === optionId);
+  if (selected?.schedule) scheduleState.schedule = selected.schedule;
+  renderQualityMetrics(selected || {});
+  renderScheduleOptions();
+  renderScheduleTableFromState();
+}
+
+function renderScheduleOptions() {
+  const root = $("schedule-options");
+  const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
+  if (!options.length) {
+    root.replaceChildren();
+    return;
+  }
+  const cards = options.map((option) => {
+    const card = create("article", undefined, `schedule-option-card${scheduleState.selectedOptionId === option.id ? " selected" : ""}`);
+    card.append(
+      create("h4", option.label || option.id || "Option"),
+      create("p", option.short_description || "Option de planning générée automatiquement."),
+      create("p", `Score qualité : ${option.quality_score ?? "--"}/100`),
+    );
+    const btn = create("button", scheduleState.selectedOptionId === option.id ? "Option sélectionnée" : "Voir cette option");
+    btn.disabled = scheduleState.selectedOptionId === option.id;
+    btn.addEventListener("click", () => selectScheduleOption(option.id).catch((error) => notify(error.message, "error")));
+    card.append(btn);
+    return card;
+  });
+  root.replaceChildren(...cards);
+}
+
 function renderScheduleTableFromState() {
   const table = $("schedule-table");
   const emptyMessage = $("schedule-empty-message");
@@ -315,6 +348,9 @@ async function refreshScheduleTable() {
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
+  renderQualityMetrics(selected || {});
+  renderScheduleOptions();
   populateScheduleFilters();
   renderScheduleTableFromState();
 }
@@ -352,6 +388,7 @@ async function refresh() {
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  renderScheduleOptions();
 
   populateScheduleFilters();
   renderScheduleTableFromState();

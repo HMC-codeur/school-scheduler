@@ -13,6 +13,7 @@ class MemoryStore:
         self.slots: List[str] = []
         self.schedule: Dict[str, Dict[str, ScheduleCell]] = {}
         self.schedule_options: list[dict] = []
+        self.selected_schedule_option_id: str | None = None
         self.conditions: List[Condition] = []
         self.time_settings: TimeSettings | None = None
         self._class_id = 1
@@ -26,6 +27,7 @@ class MemoryStore:
         self.slots = []
         self.schedule = {}
         self.schedule_options = []
+        self.selected_schedule_option_id = None
         self.conditions = []
         self.time_settings = None
         self._class_id = 1
@@ -135,6 +137,7 @@ class MemoryStore:
 
         self.schedule = {}
         self.schedule_options = []
+        self.selected_schedule_option_id = None
         return {
             "classes": len(self.classes),
             "teachers": len(self.teachers),
