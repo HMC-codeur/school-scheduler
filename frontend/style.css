@@ -145,3 +145,8 @@ th.slot-col { z-index: 3; }
 .schedule-option-card h4 { margin: 0 0 6px; }
 .schedule-option-card p { margin: 0 0 8px; font-size: .92rem; color: var(--muted); }
 .schedule-option-card button { width: 100%; }
+.score-breakdown-card { margin: 0 0 12px; border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fdfefe; }
+.score-breakdown-card h3 { margin: 0 0 8px; }
+.score-breakdown-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.score-positive { color: #145c33; }
+.score-negative { color: #9a2424; }

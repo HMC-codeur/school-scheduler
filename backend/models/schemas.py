@@ -102,6 +102,10 @@ class ConditionCreate(BaseModel):
         "class_unavailable",
         "subject_morning_preference",
         "avoid_subject_repeat",
+        "subject_prefer_morning",
+        "teacher_prefer_morning",
+        "avoid_subject_repeat_same_day",
+        "avoid_long_sequence",
     ] = "teacher_unavailable"
     type: str | None = None
     teacher_name: str | None = None
@@ -114,8 +118,13 @@ class ConditionCreate(BaseModel):
 
     @model_validator(mode="after")
     def normalize_and_validate(self) -> "ConditionCreate":
+        aliases = {
+            "subject_prefer_morning": "subject_morning_preference",
+            "avoid_subject_repeat_same_day": "avoid_subject_repeat",
+        }
         if self.type:
             self.condition_type = self.type
+        self.condition_type = aliases.get(self.condition_type, self.condition_type)
 
         self.text = (self.text or self.description or "").strip()
         if not self.text:
@@ -137,6 +146,13 @@ class ConditionCreate(BaseModel):
             self.subject_name = (self.subject_name or target or "").strip() or None
             if not self.subject_name:
                 raise ValueError("subject_name (or target_id) is required for this condition type")
+        elif self.condition_type == "teacher_prefer_morning":
+            self.teacher_name = (self.teacher_name or target or "").strip() or None
+            if not self.teacher_name:
+                raise ValueError("teacher_name (or target_id) is required for teacher_prefer_morning")
+        elif self.condition_type == "avoid_long_sequence":
+            self.class_name = (self.class_name or "").strip() or None
+            self.teacher_name = (self.teacher_name or "").strip() or None
 
         return self
 
@@ -184,6 +200,7 @@ class GenerateScheduleResponse(BaseModel):
     repeated_subjects_count: int | None = None
     long_sequences_count: int | None = None
     load_balance_status: str | None = None
+    score_breakdown: list[dict[str, int | str]] | None = None
     required_sessions: int | None = None
     scheduled_sessions: int | None = None
     generation_time_ms: int | None = None

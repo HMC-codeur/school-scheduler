@@ -79,8 +79,10 @@ function buildConditionText() {
   let text = "Condition personnalisée";
   if (type === "teacher_unavailable") text = `Professeur ${teacher || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
   if (type === "class_unavailable") text = `Classe ${className || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
-  if (type === "subject_morning_preference") text = `Placer ${subject || "(matière à définir)"} le matin si possible`;
-  if (type === "avoid_subject_repeat") text = `Éviter de répéter ${subject || "(matière à définir)"}${className ? ` pour ${className}` : ""} le même jour`;
+  if (type === "subject_prefer_morning") text = `Placer ${subject || "(matière à définir)"} le matin si possible`;
+  if (type === "teacher_prefer_morning") text = `Placer ${teacher || "(professeur à définir)"} le matin si possible`;
+  if (type === "avoid_subject_repeat_same_day") text = `Éviter de répéter ${subject || "(matière à définir)"}${className ? ` pour ${className}` : ""} le même jour`;
+  if (type === "avoid_long_sequence") text = `Éviter les longues séries de cours consécutifs${className ? ` pour ${className}` : ""}${teacher ? ` pour ${teacher}` : ""}`;
   $("condition-text").value = text;
 }
 
@@ -233,12 +235,30 @@ function renderQualityMetrics(metrics) {
   $("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
 }
 
+function renderScoreBreakdown(metrics) {
+  const root = $("score-breakdown-list");
+  const breakdown = Array.isArray(metrics?.score_breakdown) ? metrics.score_breakdown : [];
+  if (!breakdown.length) {
+    root.replaceChildren(create("li", "Aucun détail de score disponible.", "hint"));
+    return;
+  }
+  const items = breakdown.map((item) => {
+    const points = Number(item?.points || 0);
+    const prefix = points >= 0 ? "+" : "";
+    const li = create("li", undefined, points >= 0 ? "score-positive" : "score-negative");
+    li.textContent = `${prefix}${points} ${item?.label || item?.rule || "Règle appliquée"}`;
+    return li;
+  });
+  root.replaceChildren(...items);
+}
+
 async function selectScheduleOption(optionId) {
   await api(`/schedule/options/${encodeURIComponent(optionId)}/select`, { method: "POST" });
   scheduleState.selectedOptionId = optionId;
   const selected = scheduleState.scheduleOptions.find((option) => option.id === optionId);
   if (selected?.schedule) scheduleState.schedule = selected.schedule;
   renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected || {});
   renderScheduleOptions();
   renderScheduleTableFromState();
 }
@@ -350,6 +370,7 @@ async function refreshScheduleTable() {
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
   const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
   renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected || {});
   renderScheduleOptions();
   populateScheduleFilters();
   renderScheduleTableFromState();
@@ -393,6 +414,7 @@ async function refresh() {
   populateScheduleFilters();
   renderScheduleTableFromState();
   renderQualityMetrics({});
+  renderScoreBreakdown({});
   updateConditionFieldVisibility();
 }
 
@@ -503,13 +525,23 @@ function bindForms() {
       payload.slot_id = payload.slot;
     }
 
-    if (condition_type === "subject_morning_preference" || condition_type === "avoid_subject_repeat") {
+    if (condition_type === "subject_prefer_morning" || condition_type === "avoid_subject_repeat_same_day") {
       payload.subject_name = $("condition-subject-name").value.trim();
       if (!payload.subject_name) throw new Error("Veuillez saisir une matière pour cette condition.");
       payload.target_id = payload.subject_name;
     }
 
-    if (condition_type === "avoid_subject_repeat") payload.class_name = $("condition-class-name").value.trim() || null;
+    if (condition_type === "teacher_prefer_morning") {
+      payload.teacher_name = $("condition-teacher-name").value.trim();
+      if (!payload.teacher_name) throw new Error("Veuillez saisir un professeur pour cette condition.");
+      payload.target_id = payload.teacher_name;
+    }
+
+    if (condition_type === "avoid_subject_repeat_same_day") payload.class_name = $("condition-class-name").value.trim() || null;
+    if (condition_type === "avoid_long_sequence") {
+      payload.class_name = $("condition-class-name").value.trim() || null;
+      payload.teacher_name = $("condition-teacher-name").value.trim() || null;
+    }
     return payload;
   });
   bindSubmit("time-settings-form", "/time-settings", () => ({

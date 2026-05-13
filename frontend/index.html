@@ -113,15 +113,17 @@
               <select id="condition-type" required>
                 <option value="teacher_unavailable">Professeur indisponible sur un créneau</option>
                 <option value="class_unavailable">Classe indisponible sur un créneau</option>
-                <option value="subject_morning_preference">Matière préférée le matin</option>
-                <option value="avoid_subject_repeat">Éviter répétition de matière le même jour</option>
+                <option value="subject_prefer_morning">Matière préférée le matin</option>
+                <option value="teacher_prefer_morning">Professeur préféré le matin</option>
+                <option value="avoid_subject_repeat_same_day">Éviter répétition de matière le même jour</option>
+                <option value="avoid_long_sequence">Éviter plus de 4 cours consécutifs</option>
               </select>
-              <label for="condition-teacher-name" data-condition-field="teacher_unavailable">Professeur</label>
-              <input id="condition-teacher-name" data-condition-field="teacher_unavailable" placeholder="Ex: Mme Dupont" />
-              <label for="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat">Classe (optionnel pour répétition)</label>
-              <input id="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat" placeholder="Ex: 6A" />
-              <label for="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat">Matière</label>
-              <input id="condition-subject-name" data-condition-field="subject_morning_preference avoid_subject_repeat" placeholder="Ex: Mathématiques" />
+              <label for="condition-teacher-name" data-condition-field="teacher_unavailable teacher_prefer_morning avoid_long_sequence">Professeur</label>
+              <input id="condition-teacher-name" data-condition-field="teacher_unavailable teacher_prefer_morning avoid_long_sequence" placeholder="Ex: Mme Dupont" />
+              <label for="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat_same_day avoid_long_sequence">Classe (optionnel selon le type)</label>
+              <input id="condition-class-name" data-condition-field="class_unavailable avoid_subject_repeat_same_day avoid_long_sequence" placeholder="Ex: 6A" />
+              <label for="condition-subject-name" data-condition-field="subject_prefer_morning avoid_subject_repeat_same_day">Matière</label>
+              <input id="condition-subject-name" data-condition-field="subject_prefer_morning avoid_subject_repeat_same_day" placeholder="Ex: Mathématiques" />
               <label for="condition-slot" data-condition-field="teacher_unavailable class_unavailable">Créneau</label>
               <input id="condition-slot" data-condition-field="teacher_unavailable class_unavailable" list="condition-slot-options" placeholder="Ex: Mon-08:00" />
               <datalist id="condition-slot-options"></datalist>
@@ -183,6 +185,12 @@
               </ul>
             </article>
             <div id="schedule-options" class="schedule-options"></div>
+            <article class="score-breakdown-card">
+              <h3>Détail du score</h3>
+              <ul id="score-breakdown-list" class="score-breakdown-list">
+                <li class="hint">Aucun détail de score disponible.</li>
+              </ul>
+            </article>
             <div class="table-wrap"><table id="schedule-table"></table></div>
           </section>
         </main>

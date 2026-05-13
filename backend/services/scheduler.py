@@ -16,6 +16,7 @@ class ScheduleResult:
     repeated_subjects_count: int | None = None
     long_sequences_count: int | None = None
     load_balance_status: str | None = None
+    score_breakdown: list[dict[str, int | str]] | None = None
     required_sessions: int | None = None
     scheduled_sessions: int | None = None
     generation_time_ms: int | None = None
@@ -146,7 +147,9 @@ class SchedulerService:
         forced_teacher_unavailable: dict[int, set[str]] = defaultdict(set)
         class_unavailable_slots: dict[int, set[str]] = defaultdict(set)
         morning_subjects: set[str] = set()
+        morning_teachers: set[str] = set()
         avoid_repeat_subject_scopes: dict[str, set[int] | None] = {}
+        avoid_long_sequence_requested = False
 
         for condition in conditions:
             if condition.condition_type == "teacher_unavailable" and condition.teacher_name and condition.slot:
@@ -159,6 +162,8 @@ class SchedulerService:
                     class_unavailable_slots[class_obj.id].add(condition.slot)
             elif condition.condition_type == "subject_morning_preference" and condition.subject_name:
                 morning_subjects.add(condition.subject_name)
+            elif condition.condition_type == "teacher_prefer_morning" and condition.teacher_name:
+                morning_teachers.add(condition.teacher_name)
             elif condition.condition_type == "avoid_subject_repeat" and condition.subject_name:
                 if condition.class_name:
                     class_obj = class_by_name.get(condition.class_name)
@@ -166,6 +171,8 @@ class SchedulerService:
                         avoid_repeat_subject_scopes[condition.subject_name] = {class_obj.id}
                 else:
                     avoid_repeat_subject_scopes[condition.subject_name] = None
+            elif condition.condition_type == "avoid_long_sequence":
+                avoid_long_sequence_requested = True
 
         teacher_unavailable = {t.id: set(t.unavailable_slots) | forced_teacher_unavailable.get(t.id, set()) for t in teachers}
 
@@ -207,6 +214,7 @@ class SchedulerService:
 
         def evaluate_quality(assignments: list[dict[str, str]]) -> dict[str, int | str]:
             class_by_name = {c.name: c for c in classes}
+            teacher_by_name = {t.name: t for t in teachers}
             slot_to_day = {slot: day_of(slot) for slot in slots}
             slots_per_day: dict[str, list[str]] = defaultdict(list)
             for slot in slots:
@@ -214,26 +222,50 @@ class SchedulerService:
 
             class_day_slots: dict[tuple[str, str], set[str]] = defaultdict(set)
             class_day_subjects: dict[tuple[str, str], list[str]] = defaultdict(list)
-            teacher_slot_use: dict[tuple[str, str], int] = defaultdict(int)
+            teacher_day_slots: dict[tuple[str, str], set[str]] = defaultdict(set)
+            teacher_slot_use: dict[tuple[str, str], list[str]] = defaultdict(list)
+            class_slot_use: dict[tuple[str, str], int] = defaultdict(int)
+            score_breakdown: list[dict[str, int | str]] = []
 
             for item in assignments:
                 day = slot_to_day[item["slot"]]
                 class_day_slots[(item["class"], day)].add(item["slot"])
                 class_day_subjects[(item["class"], day)].append(item["subject"])
-                teacher_slot_use[(item["teacher"], item["slot"])] += 1
+                teacher_day_slots[(item["teacher"], day)].add(item["slot"])
+                teacher_slot_use[(item["teacher"], item["slot"])].append(item["class"])
+                class_slot_use[(item["class"], item["slot"])] += 1
 
             score = 100
             conflicts_count = 0
             gaps_count = 0
             repeated_subjects_count = 0
             long_sequences_count = 0
+            teacher_long_sequences_count = 0
 
-            # Heavy penalty for any conflict (should be zero in normal cases).
-            for count in teacher_slot_use.values():
+            def add_rule(rule: str, label: str, points: int) -> None:
+                nonlocal score
+                score += points
+                score_breakdown.append({"rule": rule, "label": label, "points": points})
+
+            for (teacher_name, slot), class_names in teacher_slot_use.items():
+                if len(class_names) > 1:
+                    conflicts_count += 1
+                    add_rule("teacher_conflict", f"Le professeur {teacher_name} est utilisé dans plusieurs classes sur le créneau {slot}", -100)
+
+            for (class_name, slot), count in class_slot_use.items():
                 if count > 1:
-                    overbookings = count - 1
-                    conflicts_count += overbookings
-                    score -= 50 * overbookings
+                    conflicts_count += 1
+                    add_rule("class_conflict", f"La classe {class_name} a plusieurs cours sur le créneau {slot}", -100)
+
+            for item in assignments:
+                teacher = teacher_by_name.get(item["teacher"])
+                if teacher and item["subject"] not in teacher.subjects:
+                    add_rule("teacher_subject_incompatible", f"Le professeur {teacher.name} est affecté à une matière non compatible ({item['subject']})", -80)
+                if teacher and item["slot"] in teacher_unavailable.get(teacher.id, set()):
+                    add_rule("teacher_unavailable_slot", f"Le professeur {teacher.name} est placé sur un créneau indisponible ({item['slot']})", -70)
+                class_obj = class_by_name.get(item["class"])
+                if class_obj and item["slot"] in class_unavailable_slots.get(class_obj.id, set()):
+                    add_rule("class_unavailable_slot", f"La classe {class_obj.name} est placée sur un créneau indisponible ({item['slot']})", -70)
 
             for class_obj in classes:
                 per_day_load = []
@@ -254,8 +286,10 @@ class SchedulerService:
                     if positions:
                         span = positions[-1] - positions[0] + 1
                         holes = span - len(positions)
-                        gaps_count += holes
-                        score -= holes * 6
+                        if holes > 0:
+                            gaps_count += holes
+                            for _ in range(holes):
+                                add_rule("class_gap", f"Trou détecté pour la classe {class_obj.name} le {day}", -3)
 
                     # Penalize many repeated subjects on same day.
                     subject_count = defaultdict(int)
@@ -263,37 +297,84 @@ class SchedulerService:
                         subject_count[subject_name] += 1
                     for repeated in subject_count.values():
                         if repeated > 1:
-                            repeated_subjects_count += repeated - 1
-                            score -= (repeated - 1) * 4
+                            excess = repeated - 1
+                            repeated_subjects_count += excess
+                            add_rule("avoid_subject_repeat_same_day", f"Matière répétée plusieurs fois pour la classe {class_obj.name} le {day}", -8 * excess)
 
                     # Penalize long streaks of consecutive classes.
                     streak = 1
                     for idx in range(1, len(positions)):
                         if positions[idx] == positions[idx - 1] + 1:
                             streak += 1
-                            if streak > 2:
-                                long_sequences_count += 1
-                                score -= 3
                         else:
                             streak = 1
+                        if streak == 5:
+                            long_sequences_count += 1
+                            rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "class_long_sequence"
+                            add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour la classe {class_obj.name} le {day}", -6)
 
-                # Reward balanced load across days (small variance).
-                avg = sum(per_day_load) / len(per_day_load)
-                imbalance = sum(abs(v - avg) for v in per_day_load)
-                score -= int(imbalance * 2)
+            teacher_loads: list[int] = []
+            for teacher in teachers:
+                teacher_load = 0
+                for day in days:
+                    used_slots = teacher_day_slots[(teacher.name, day)]
+                    teacher_load += len(used_slots)
+                    ordered_slots = sorted(used_slots, key=lambda s: slot_order[s])
+                    positions = [slot_order[s] for s in ordered_slots]
+                    if positions:
+                        span = positions[-1] - positions[0] + 1
+                        holes = span - len(positions)
+                        if holes > 0:
+                            gaps_count += holes
+                            for _ in range(holes):
+                                add_rule("teacher_gap", f"Trou détecté pour le professeur {teacher.name} le {day}", -2)
+                    streak = 1
+                    for idx in range(1, len(positions)):
+                        if positions[idx] == positions[idx - 1] + 1:
+                            streak += 1
+                        else:
+                            streak = 1
+                        if streak == 5:
+                            teacher_long_sequences_count += 1
+                            rule_id = "avoid_long_sequence" if avoid_long_sequence_requested else "teacher_long_sequence"
+                            add_rule(rule_id, f"Série longue (>4 cours consécutifs) détectée pour le professeur {teacher.name} le {day}", -6)
+                teacher_loads.append(teacher_load)
 
-            max_imbalance = max(sum(subject_hours.values()) for _ in classes)
-            load_balance_status = "good" if score >= 75 else "average" if score >= 50 else "bad"
-            if max_imbalance > 0 and score >= 85 and conflicts_count == 0 and gaps_count <= 2:
-                load_balance_status = "good"
+            long_sequences_count += teacher_long_sequences_count
+
+            morning_subjects_in_conditions = {c.subject_name for c in (conditions or []) if c.condition_type == "subject_morning_preference" and c.subject_name}
+            for item in assignments:
+                if item["subject"] in morning_subjects_in_conditions:
+                    time_part = item["slot"].split("-", 1)[1] if "-" in item["slot"] else "23:59"
+                    if time_part < "12:00":
+                        add_rule("subject_morning_preference", f"{item['subject']} placée le matin", 3)
+                        break
+            for teacher_name in morning_teachers:
+                teacher_slots = [a["slot"] for a in assignments if a["teacher"] == teacher_name]
+                if not teacher_slots:
+                    continue
+                if any((s.split("-", 1)[1] if "-" in s else "23:59") < "12:00" for s in teacher_slots):
+                    add_rule("teacher_morning_preference", f"Le professeur {teacher_name} enseigne le matin comme préféré", 3)
+
+            class_loads = [sum(len(class_day_slots[(class_obj.name, day)]) for day in days) for class_obj in classes]
+            if class_loads and max(class_loads) - min(class_loads) <= 2:
+                add_rule("class_load_balance", "Charge des classes bien équilibrée", 5)
+            if teacher_loads and max(teacher_loads) - min(teacher_loads) <= 2:
+                add_rule("teacher_load_balance", "Charge des professeurs bien équilibrée", 5)
+            if class_loads and teacher_loads and (max(class_loads) - min(class_loads) <= 2) and (max(teacher_loads) - min(teacher_loads) <= 2):
+                add_rule("global_distribution", "Bonne répartition globale du planning", 5)
+
+            bounded_score = max(0, min(100, score))
+            load_balance_status = "good" if bounded_score >= 75 else "average" if bounded_score >= 50 else "bad"
 
             return {
-                "quality_score": max(0, min(100, score)),
+                "quality_score": bounded_score,
                 "conflicts_count": conflicts_count,
                 "gaps_count": gaps_count,
                 "repeated_subjects_count": repeated_subjects_count,
                 "long_sequences_count": long_sequences_count,
                 "load_balance_status": load_balance_status,
+                "score_breakdown": score_breakdown,
             }
 
         def build_schedule(assignments: list[dict[str, str]]) -> dict[str, dict[str, ScheduleCell]]:
@@ -471,6 +552,7 @@ class SchedulerService:
             repeated_subjects_count=int(best_quality_metrics["repeated_subjects_count"]),
             long_sequences_count=int(best_quality_metrics["long_sequences_count"]),
             load_balance_status=str(best_quality_metrics["load_balance_status"]),
+            score_breakdown=list(best_quality_metrics.get("score_breakdown", [])),
             required_sessions=total_required_sessions,
             scheduled_sessions=len(best_assignments),
             generation_time_ms=int((perf_counter() - started_at) * 1000),
@@ -505,6 +587,7 @@ class SchedulerService:
                     "repeated_subjects_count": result.repeated_subjects_count,
                     "long_sequences_count": result.long_sequences_count,
                     "load_balance_status": result.load_balance_status,
+                    "score_breakdown": result.score_breakdown or [],
                     "short_description": short_description,
                     "message": result.message,
                 }
