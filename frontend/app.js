@@ -23,7 +23,8 @@ const create = (tag, text, className) => {
   return el;
 };
 
-async function api(path, options = {}) {
+async function api(path, requestOptions) {
+  const options = requestOptions || {};
   const response = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -308,13 +309,13 @@ function renderScheduleTableFromState() {
 }
 
 async function refreshScheduleTable() {
-  const [classes, slots, schedule, teachers, options] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
+  const [classes, slots, schedule, teachers, scheduleOptions] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.slots = slots;
   scheduleState.schedule = schedule || {};
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
   populateScheduleFilters();
   renderScheduleTableFromState();
