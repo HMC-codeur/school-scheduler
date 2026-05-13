@@ -46,3 +46,38 @@ def test_clear_resets_schedule() -> None:
     schedule_response = client.get('/schedule')
     assert schedule_response.status_code == 200
     assert schedule_response.json() == {}
+
+
+def test_generated_options_are_scored_and_sorted() -> None:
+    client.post('/schedule/load-demo')
+    generate_response = client.post('/schedule/generate')
+    assert generate_response.status_code == 200
+    assert generate_response.json().get("success") is True
+
+    options_response = client.get('/schedule/options')
+    options = options_response.json()
+    assert options_response.status_code == 200
+    assert 1 <= len(options) <= 3
+
+    scores = [option.get("quality_score") for option in options]
+    assert all(isinstance(score, int) for score in scores)
+    assert scores == sorted(scores, reverse=True)
+
+    selected = [option for option in options if option.get("selected")]
+    assert len(selected) == 1
+    assert selected[0]["id"] == options[0]["id"]
+
+    for option in options:
+        assert isinstance(option.get("schedule"), dict)
+        assert isinstance(option.get("score_breakdown"), list)
+        signature = option.get("schedule_signature")
+        assert isinstance(signature, str) and len(signature) == 8
+
+
+def test_option_signatures_reflect_schedule_content() -> None:
+    client.post('/schedule/load-demo')
+    client.post('/schedule/generate')
+    options = client.get('/schedule/options').json()
+    signatures = {option["schedule_signature"] for option in options}
+    if len(signatures) > 1:
+        assert len(signatures) == len(options)

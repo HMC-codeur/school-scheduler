@@ -47,12 +47,13 @@ def delete_constraint(constraint_id: int, store: MemoryStore = Depends(get_store
 @router.get('/schedule/options')
 def schedule_options(store: MemoryStore = Depends(get_store)) -> list[dict]:
     selected_option_id = store.selected_schedule_option_id
+    sorted_options = sorted(store.schedule_options, key=lambda option: option.get("quality_score") or 0, reverse=True)
     return [
         {
             **option,
             "selected": option.get("id") == selected_option_id,
         }
-        for option in store.schedule_options
+        for option in sorted_options
     ]
 
 

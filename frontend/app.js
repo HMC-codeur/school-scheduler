@@ -239,6 +239,8 @@ function renderScoreBreakdown(metrics) {
   const root = $("score-breakdown-list");
   const breakdown = Array.isArray(metrics?.score_breakdown) ? metrics.score_breakdown : [];
   $("score-debug-option").textContent = scheduleState.selectedOptionId || "-";
+  $("score-debug-options-count").textContent = String(scheduleState.scheduleOptions.length || 0);
+  $("score-debug-signature").textContent = metrics?.schedule_signature || "-";
   $("score-debug-items").textContent = String(breakdown.length);
   $("score-debug-received").textContent = Number.isFinite(Number(metrics?.quality_score)) ? String(Number(metrics.quality_score)) : "--";
   if (!breakdown.length) {
@@ -257,9 +259,11 @@ function renderScoreBreakdown(metrics) {
 
 async function selectScheduleOption(optionId) {
   await api(`/schedule/options/${encodeURIComponent(optionId)}/select`, { method: "POST" });
-  scheduleState.selectedOptionId = optionId;
-  const selected = scheduleState.scheduleOptions.find((option) => option.id === optionId);
-  if (selected?.schedule) scheduleState.schedule = selected.schedule;
+  const [scheduleOptions, schedule] = await Promise.all([api("/schedule/options"), api("/schedule")]);
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
+  scheduleState.schedule = schedule || {};
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || optionId;
+  const selected = scheduleState.scheduleOptions.find((option) => option.id === scheduleState.selectedOptionId);
   renderQualityMetrics(selected || {});
   renderScoreBreakdown(selected || {});
   renderScheduleOptions();
@@ -276,11 +280,13 @@ function renderScheduleOptions() {
   const cards = options.map((option) => {
     const card = create("article", undefined, `schedule-option-card${scheduleState.selectedOptionId === option.id ? " selected" : ""}`);
     card.append(
-      create("h4", option.label || option.id || "Option"),
-      create("p", option.short_description || "Option de planning générée automatiquement."),
-      create("p", `Score qualité : ${option.quality_score ?? "--"}/100`),
+      create("h4", option.id || option.label || "Option"),
+      create("p", `Score : ${option.quality_score ?? "--"}/100`),
+      create("p", `Statut : ${option.selected ? "sélectionnée" : "non sélectionnée"}`),
+      create("p", `Signature : ${option.schedule_signature || "-"}`),
+      create("p", `Description : ${option.description || "Option générée automatiquement."}`),
     );
-    const btn = create("button", scheduleState.selectedOptionId === option.id ? "Option sélectionnée" : "Voir cette option");
+    const btn = create("button", scheduleState.selectedOptionId === option.id ? "Option sélectionnée" : "Choisir cette option");
     btn.disabled = scheduleState.selectedOptionId === option.id;
     btn.addEventListener("click", () => selectScheduleOption(option.id).catch((error) => notify(error.message, "error")));
     card.append(btn);

@@ -25,20 +25,13 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         store.classes, store.teachers, store.subjects, store.slots, store.conditions
     )
     if not store.schedule_options:
-        store.schedule_options = [{
-            "id": "option-1",
-            "label": "Option 1",
-            "schedule": result.schedule,
-            "quality_score": result.quality_score,
-            "conflicts_count": result.conflicts_count,
-            "gaps_count": result.gaps_count,
-            "repeated_subjects_count": result.repeated_subjects_count,
-            "long_sequences_count": result.long_sequences_count,
-            "load_balance_status": result.load_balance_status,
-            "message": result.message,
-            "score_breakdown": result.score_breakdown or [],
-        }]
-    best_option = max(store.schedule_options, key=lambda option: option.get("quality_score") or 0)
+        store.schedule_options = []
+    store.schedule_options.sort(key=lambda option: option.get("quality_score") or 0, reverse=True)
+    for idx, option in enumerate(store.schedule_options):
+        option["selected"] = idx == 0
+    best_option = store.schedule_options[0] if store.schedule_options else None
+    if best_option is None:
+        return GenerateScheduleResponse(success=False, message="No schedule option could be generated.", schedule={})
     store.selected_schedule_option_id = best_option.get("id")
     store.schedule = best_option["schedule"]
     return GenerateScheduleResponse(
