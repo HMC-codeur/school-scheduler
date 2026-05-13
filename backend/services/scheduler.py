@@ -22,6 +22,10 @@ class ScheduleResult:
 
 
 class SchedulerService:
+    STRATEGY_BALANCED = "balanced"
+    STRATEGY_AVOID_REPEATS = "avoid_repeats"
+    STRATEGY_CONTINUOUS = "continuous"
+
     @staticmethod
     def generate(
         classes: list[Class],
@@ -29,6 +33,7 @@ class SchedulerService:
         subjects: list[Subject],
         slots: list[str],
         conditions: list[Condition] | None = None,
+        strategy: str = STRATEGY_BALANCED,
         default_max_lessons_per_class_per_day: int = 6,
         default_max_lessons_per_teacher_per_day: int = 6,
     ) -> ScheduleResult:
@@ -307,9 +312,10 @@ class SchedulerService:
         for attempt in range(3):
             # Try multiple session orders and keep the best quality score.
             # This improves schedule quality while staying deterministic.
-            if attempt == 0:
+            strategy_attempt = (attempt + (0 if strategy == SchedulerService.STRATEGY_BALANCED else 1 if strategy == SchedulerService.STRATEGY_AVOID_REPEATS else 2)) % 3
+            if strategy_attempt == 0:
                 ordered_sessions = sorted(sessions, key=lambda x: len(teachers_by_subject.get(x[1], [])))
-            elif attempt == 1:
+            elif strategy_attempt == 1:
                 ordered_sessions = sorted(sessions, key=lambda x: (x[0].name, -subject_hours[x[1]]))
             else:
                 ordered_sessions = sorted(sessions, key=lambda x: (x[1], x[0].name))
@@ -335,7 +341,9 @@ class SchedulerService:
                 if subject_name in morning_subjects and time_part >= "12:00":
                     is_afternoon_penalty = 2
                 middle_distance = abs(slot_order[slot] - (len(slots) // 2))
-                return (same_day_subject_count, is_afternoon_penalty, daily_load, middle_distance, slot_order[slot])
+                continuity_hint = middle_distance if strategy == SchedulerService.STRATEGY_CONTINUOUS else 0
+                repeat_hint = same_day_subject_count if strategy == SchedulerService.STRATEGY_AVOID_REPEATS else 0
+                return (same_day_subject_count + repeat_hint, is_afternoon_penalty, daily_load, continuity_hint, middle_distance, slot_order[slot])
 
             def backtrack(index: int) -> bool:
                 if index == len(ordered_sessions):
@@ -467,3 +475,38 @@ class SchedulerService:
             scheduled_sessions=len(best_assignments),
             generation_time_ms=int((perf_counter() - started_at) * 1000),
         )
+
+    @staticmethod
+    def generate_options(
+        classes: list[Class],
+        teachers: list[Teacher],
+        subjects: list[Subject],
+        slots: list[str],
+        conditions: list[Condition] | None = None,
+    ) -> list[dict]:
+        option_defs = [
+            (SchedulerService.STRATEGY_BALANCED, "option-1", "Option 1", "Option équilibrée générale."),
+            (SchedulerService.STRATEGY_AVOID_REPEATS, "option-2", "Option 2", "Option qui évite davantage les répétitions de matière."),
+            (SchedulerService.STRATEGY_CONTINUOUS, "option-3", "Option 3", "Option qui favorise une meilleure continuité avec moins de trous."),
+        ]
+        options: list[dict] = []
+        for strategy, option_id, label, short_description in option_defs:
+            result = SchedulerService.generate(classes, teachers, subjects, slots, conditions, strategy=strategy)
+            if not result.success:
+                return []
+            options.append(
+                {
+                    "id": option_id,
+                    "label": label,
+                    "schedule": result.schedule,
+                    "quality_score": result.quality_score,
+                    "conflicts_count": result.conflicts_count,
+                    "gaps_count": result.gaps_count,
+                    "repeated_subjects_count": result.repeated_subjects_count,
+                    "long_sequences_count": result.long_sequences_count,
+                    "load_balance_status": result.load_balance_status,
+                    "short_description": short_description,
+                    "message": result.message,
+                }
+            )
+        return options

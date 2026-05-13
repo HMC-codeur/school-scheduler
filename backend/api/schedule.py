@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi import HTTPException
 
 
 from backend.data.store import get_store
@@ -16,11 +17,18 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
     if not result.success:
         store.schedule = {}
         store.schedule_options = []
+        store.selected_schedule_option_id = None
         message = result.message or explain_generation_failure(store.classes, store.teachers, store.subjects, store.slots)
         return GenerateScheduleResponse(success=False, message=message, schedule={})
 
-    store.schedule = result.schedule
-    store.schedule_options = [{"id": "option-1", "score": result.quality_score, "schedule": result.schedule, "message": result.message}]
+    store.schedule_options = SchedulerService.generate_options(
+        store.classes, store.teachers, store.subjects, store.slots, store.conditions
+    )
+    if not store.schedule_options:
+        store.schedule_options = [{"id": "option-1", "label": "Option 1", "schedule": result.schedule, "quality_score": result.quality_score, "message": result.message}]
+    best_option = max(store.schedule_options, key=lambda option: option.get("quality_score") or 0)
+    store.selected_schedule_option_id = best_option.get("id")
+    store.schedule = best_option["schedule"]
     return GenerateScheduleResponse(
         success=True,
         message=result.message,
@@ -58,3 +66,13 @@ def clear_all_data(store: MemoryStore = Depends(get_store)) -> dict:
 @router.get("", response_model=dict[str, dict[str, ScheduleCell]])
 def get_schedule(store: MemoryStore = Depends(get_store)) -> dict[str, dict[str, ScheduleCell]]:
     return store.schedule
+
+
+@router.post("/options/{option_id}/select", response_model=dict)
+def select_option(option_id: str, store: MemoryStore = Depends(get_store)) -> dict:
+    option = next((item for item in store.schedule_options if item.get("id") == option_id), None)
+    if not option:
+        raise HTTPException(status_code=404, detail="Schedule option not found")
+    store.selected_schedule_option_id = option_id
+    store.schedule = option.get("schedule", {})
+    return {"message": f"Option '{option_id}' selected.", "selected_option_id": option_id}
