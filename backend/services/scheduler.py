@@ -1,11 +1,10 @@
 from collections import defaultdict
 from dataclasses import dataclass
-import hashlib
-import json
 import random
 from time import perf_counter
 
 from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
+from backend.services.scoring import build_schedule_option, rank_schedule_options
 
 
 @dataclass
@@ -30,25 +29,6 @@ class SchedulerService:
     STRATEGY_AVOID_REPEATS = "avoid_repeats"
     STRATEGY_CONTINUOUS = "continuous"
 
-    @staticmethod
-    def _schedule_signature(schedule: dict[str, dict[str, ScheduleCell]]) -> str:
-        normalized = {
-            slot: {class_name: cell.model_dump() for class_name, cell in entries.items()}
-            for slot, entries in schedule.items()
-        }
-        payload = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
-
-    @staticmethod
-    def _build_option_description(metrics: dict) -> str:
-        return (
-            f"Score {metrics.get('quality_score', '--')}/100 · "
-            f"conflits {metrics.get('conflicts_count', 0)} · "
-            f"trous {metrics.get('gaps_count', 0)} · "
-            f"répétitions {metrics.get('repeated_subjects_count', 0)} · "
-            f"séquences longues {metrics.get('long_sequences_count', 0)} · "
-            f"équilibrage {metrics.get('load_balance_status', '-')}"
-        )
 
     @staticmethod
     def generate(
@@ -589,12 +569,12 @@ class SchedulerService:
         conditions: list[Condition] | None = None,
     ) -> list[dict]:
         option_defs = [
-            (SchedulerService.STRATEGY_BALANCED, "option-1", "Option 1", 1),
-            (SchedulerService.STRATEGY_AVOID_REPEATS, "option-2", "Option 2", 2),
-            (SchedulerService.STRATEGY_CONTINUOUS, "option-3", "Option 3", 3),
+            (SchedulerService.STRATEGY_BALANCED, 1),
+            (SchedulerService.STRATEGY_AVOID_REPEATS, 2),
+            (SchedulerService.STRATEGY_CONTINUOUS, 3),
         ]
         options: list[dict] = []
-        for strategy, option_id, label, seed in option_defs:
+        for strategy, seed in option_defs:
             rng = random.Random(seed)
             shuffled_classes = list(classes)
             shuffled_subjects = list(subjects)
@@ -614,28 +594,15 @@ class SchedulerService:
             )
             if not result.success:
                 continue
-            metrics = {
-                "quality_score": result.quality_score,
-                "conflicts_count": result.conflicts_count,
-                "gaps_count": result.gaps_count,
-                "repeated_subjects_count": result.repeated_subjects_count,
-                "long_sequences_count": result.long_sequences_count,
-                "load_balance_status": result.load_balance_status,
-            }
-            options.append(
-                {
-                    "id": option_id,
-                    "label": label,
-                    "schedule": result.schedule,
-                    **metrics,
-                    "score_breakdown": result.score_breakdown or [],
-                    "description": SchedulerService._build_option_description(metrics),
-                    "schedule_signature": SchedulerService._schedule_signature(result.schedule),
-                    "message": result.message,
-                }
+            option = build_schedule_option(
+                option_id=f"option-{seed}",
+                schedule=result.schedule,
+                classes=classes,
+                teachers=teachers,
+                subjects=subjects,
+                slots=slots,
+                constraints=conditions,
             )
-        signatures = {option["schedule_signature"] for option in options}
-        if len(signatures) == 1 and options:
-            for option in options:
-                option["description"] = f"{option['description']} · Aucune variante différente trouvée avec les données actuelles."
-        return options
+            option["message"] = result.message
+            options.append(option)
+        return rank_schedule_options(options)

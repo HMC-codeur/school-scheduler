@@ -15,6 +15,7 @@ def _is_complete_option(option: dict) -> bool:
         and option.get("schedule") is not None
         and option.get("quality_score") is not None
         and option.get("schedule_signature")
+        and isinstance(option.get("metrics"), dict)
     )
 
 
@@ -24,6 +25,10 @@ def _normalize_options(options: list[dict], selected_option_id: str | None = Non
     fallback_selected = selected_option_id if selected_option_id and any(o.get("id") == selected_option_id for o in valid) else (valid[0].get("id") if valid else None)
     for option in valid:
         option["selected"] = option.get("id") == fallback_selected
+        option["description"] = str(option.get("description") or "")
+        option["schedule_signature"] = str(option.get("schedule_signature") or "")
+        option["metrics"] = dict(option.get("metrics") or {})
+        option["quality_score"] = int(option.get("quality_score") or 0)
     return valid
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -53,12 +58,12 @@ def generate_schedule(store: MemoryStore = Depends(get_store)) -> GenerateSchedu
         message=result.message,
         schedule=store.schedule,
         quality_score=best_option.get("quality_score"),
-        conflicts_count=best_option.get("conflicts_count"),
-        gaps_count=best_option.get("gaps_count"),
-        repeated_subjects_count=best_option.get("repeated_subjects_count"),
-        long_sequences_count=best_option.get("long_sequences_count"),
-        load_balance_status=best_option.get("load_balance_status"),
-        score_breakdown=best_option.get("score_breakdown"),
+        conflicts_count=best_option.get("metrics", {}).get("teacher_conflicts", 0) + best_option.get("metrics", {}).get("class_conflicts", 0),
+        gaps_count=best_option.get("metrics", {}).get("empty_gaps", 0),
+        repeated_subjects_count=0,
+        long_sequences_count=0,
+        load_balance_status="good" if (best_option.get("quality_score") or 0) >= 75 else "average" if (best_option.get("quality_score") or 0) >= 50 else "bad",
+        score_breakdown=[],
         required_sessions=result.required_sessions,
         scheduled_sessions=result.scheduled_sessions,
         generation_time_ms=result.generation_time_ms,

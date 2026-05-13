@@ -55,14 +55,7 @@ def delete_constraint(constraint_id: int, store: MemoryStore = Depends(get_store
 
 @router.get('/schedule/options')
 def schedule_options(store: MemoryStore = Depends(get_store)) -> list[dict]:
-    selected_option_id = store.selected_schedule_option_id
-    sorted_options = sorted(
-        [option for option in store.schedule_options if _is_complete_option(option)],
-        key=lambda option: option.get("quality_score") or 0,
-        reverse=True,
-    )
-    fallback_selected = selected_option_id if any(option.get("id") == selected_option_id for option in sorted_options) else (sorted_options[0].get("id") if sorted_options else None)
-    return [{**option, "selected": option.get("id") == fallback_selected} for option in sorted_options]
+    return [option for option in store.schedule_options if _is_complete_option(option)]
 
 
 @router.get('/schedule/export/json')
