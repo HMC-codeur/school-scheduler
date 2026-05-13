@@ -92,7 +92,7 @@ class ConditionCreate(BaseModel):
 
     @model_validator(mode="after")
     def normalize_and_validate(self) -> "ConditionCreate":
-        if self.type and not self.condition_type:
+        if self.type:
             self.condition_type = self.type
 
         self.text = (self.text or self.description or "").strip()
