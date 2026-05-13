@@ -317,8 +317,15 @@ async function refreshScheduleTable() {
 }
 
 async function refresh() {
-  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings] = await Promise.all([
-    api("/classes"), api("/subjects"), api("/teachers"), api("/slots"), api("/schedule"), api("/conditions"), api("/time-settings"),
+  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings, scheduleOptions] = await Promise.all([
+    api("/classes"),
+    api("/subjects"),
+    api("/teachers"),
+    api("/slots"),
+    api("/schedule"),
+    api("/conditions"),
+    api("/time-settings"),
+    api("/schedule/options").catch(() => []),
   ]);
 
   $("count-classes").textContent = classes.length;
@@ -340,7 +347,7 @@ async function refresh() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  scheduleState.scheduleOptions = Array.isArray(options) ? options : [];
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
 
   populateScheduleFilters();
