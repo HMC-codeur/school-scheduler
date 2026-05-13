@@ -34,13 +34,41 @@ class SchedulerService:
     ) -> ScheduleResult:
         started_at = perf_counter()
         if not classes:
-            return ScheduleResult(False, "Cannot generate schedule: no classes added.", {})
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: no classes added.",
+                {},
+                required_sessions=0,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
+            )
         if not teachers:
-            return ScheduleResult(False, "Cannot generate schedule: no teachers added.", {})
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: no teachers added.",
+                {},
+                required_sessions=0,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
+            )
         if not subjects:
-            return ScheduleResult(False, "Cannot generate schedule: no subjects added.", {})
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: no subjects added.",
+                {},
+                required_sessions=0,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
+            )
         if not slots:
-            return ScheduleResult(False, "Cannot generate schedule: no time slots added.", {})
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: no time slots added.",
+                {},
+                required_sessions=0,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
+            )
 
         conditions = conditions or []
 
@@ -52,7 +80,14 @@ class SchedulerService:
         slot_order = {slot: idx for idx, slot in enumerate(slots)}
         days = sorted({day_of(s) for s in slots})
         if not days:
-            return ScheduleResult(False, "Cannot generate schedule: no valid day information in slots.", {})
+            return ScheduleResult(
+                False,
+                "Cannot generate schedule: no valid day information in slots.",
+                {},
+                required_sessions=0,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
+            )
 
         subject_hours = {s.name: s.hours_per_week for s in subjects}
         total_required_sessions = len(classes) * sum(subject_hours.values())
@@ -62,6 +97,9 @@ class SchedulerService:
                 False,
                 "Cannot generate schedule: not enough slots for all required subject hours.",
                 {},
+                required_sessions=total_required_sessions,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
             )
 
         weekly_hours_per_class = sum(subject_hours.values())
@@ -76,6 +114,9 @@ class SchedulerService:
                         f"({weekly_hours_per_class} required, {class_weekly_capacity} max capacity)."
                     ),
                     {},
+                    required_sessions=total_required_sessions,
+                    scheduled_sessions=0,
+                    generation_time_ms=int((perf_counter() - started_at) * 1000),
                 )
 
         teachers_by_subject: dict[str, list[Teacher]] = defaultdict(list)
@@ -89,6 +130,9 @@ class SchedulerService:
                     False,
                     f"Cannot generate schedule: subject '{subject_name}' has no teacher assigned.",
                     {},
+                    required_sessions=total_required_sessions,
+                    scheduled_sessions=0,
+                    generation_time_ms=int((perf_counter() - started_at) * 1000),
                 )
 
         teacher_by_name = {t.name: t for t in teachers}
@@ -130,6 +174,9 @@ class SchedulerService:
                     False,
                     f"Cannot generate schedule: teacher '{teacher.name}' has no available slots.",
                     {},
+                    required_sessions=total_required_sessions,
+                    scheduled_sessions=0,
+                    generation_time_ms=int((perf_counter() - started_at) * 1000),
                 )
 
         sessions: list[tuple[Class, str]] = []
@@ -359,6 +406,9 @@ class SchedulerService:
                     "or reduce weekly subject hours."
                 ),
                 {},
+                required_sessions=total_required_sessions,
+                scheduled_sessions=0,
+                generation_time_ms=int((perf_counter() - started_at) * 1000),
             )
 
         return ScheduleResult(
@@ -371,4 +421,7 @@ class SchedulerService:
             repeated_subjects_count=int(best_quality_metrics["repeated_subjects_count"]),
             long_sequences_count=int(best_quality_metrics["long_sequences_count"]),
             load_balance_status=str(best_quality_metrics["load_balance_status"]),
+            required_sessions=total_required_sessions,
+            scheduled_sessions=len(best_assignments),
+            generation_time_ms=int((perf_counter() - started_at) * 1000),
         )
