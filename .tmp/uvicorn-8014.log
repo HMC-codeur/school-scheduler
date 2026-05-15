@@ -1,6 +1,0 @@
-INFO:     127.0.0.1:52066 - "POST /schedule/clear HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52067 - "POST /schedule/load-demo HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52068 - "POST /schedule/generate HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52069 - "POST /schedule/repair HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52070 - "GET /schedule/repair/proposals/missing/export/pdf HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:52071 - "GET /schedule/repair/proposals/repair-proposal-0869830d0e07/export/pdf HTTP/1.1" 200 OK

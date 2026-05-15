@@ -1,2 +1,0 @@
-INFO:     127.0.0.1:65022 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65023 - "GET /app.js?v=saas-v1 HTTP/1.1" 200 OK

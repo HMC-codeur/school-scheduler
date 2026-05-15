@@ -83,10 +83,15 @@ function initializeNavigation() {
 
 async function api(path, requestOptions) {
   const options = requestOptions || {};
-  const response = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch (error) {
+    throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
+  }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     const detail = err?.detail;
@@ -115,6 +120,7 @@ async function refreshBackendStatus() {
 
 function notify(message, type = "success") {
   const el = $("toast");
+  if (!el) return;
   el.textContent = message;
   el.className = `toast ${type}`;
   setTimeout(() => (el.className = "toast hidden"), 3500);
@@ -150,11 +156,12 @@ function setLoading(button, isLoading, text) {
   if (!button) return;
   button.disabled = isLoading;
   if (isLoading) {
-    button.dataset.originalText = button.textContent;
+    if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
     button.textContent = text;
     return;
   }
   button.textContent = button.dataset.originalText || button.textContent;
+  delete button.dataset.originalText;
 }
 
 function setButtonsLoading(buttons, isLoading, text) {
@@ -421,8 +428,7 @@ function populateScheduleFilters() {
     return option;
   }));
 
-  if (!scheduleState.classes.includes(scheduleState.selectedClass)) scheduleState.selectedClass = "";
-  if (!scheduleState.teachers.includes(scheduleState.selectedTeacher)) scheduleState.selectedTeacher = "";
+  normalizeScheduleFilters();
   classSelect.value = scheduleState.selectedClass;
   teacherSelect.value = scheduleState.selectedTeacher;
   const repairTarget = $("repair-target");
@@ -431,9 +437,23 @@ function populateScheduleFilters() {
 }
 
 function syncScheduleFiltersUI() {
+  normalizeScheduleFilters();
   const isClassView = scheduleState.viewMode === "class";
   $("schedule-class-filter").disabled = !isClassView;
   $("schedule-teacher-filter").disabled = isClassView;
+}
+
+function normalizeScheduleFilters() {
+  if (!["class", "teacher"].includes(scheduleState.viewMode)) scheduleState.viewMode = "class";
+  if (!scheduleState.classes.includes(scheduleState.selectedClass)) scheduleState.selectedClass = "";
+  if (!scheduleState.teachers.includes(scheduleState.selectedTeacher)) scheduleState.selectedTeacher = "";
+
+  const modeSelect = $("schedule-view-mode");
+  const classSelect = $("schedule-class-filter");
+  const teacherSelect = $("schedule-teacher-filter");
+  if (modeSelect) modeSelect.value = scheduleState.viewMode;
+  if (classSelect) classSelect.value = scheduleState.selectedClass;
+  if (teacherSelect) teacherSelect.value = scheduleState.selectedTeacher;
 }
 
 function getSelectedScheduleOption() {
@@ -625,6 +645,8 @@ function renderScheduleOptions() {
 function renderScheduleTableFromState() {
   const table = $("schedule-table");
   const emptyMessage = $("schedule-empty-message");
+  if (!table || !emptyMessage) return;
+  normalizeScheduleFilters();
   const { slots, classes } = scheduleState;
   const schedule = getDisplayedSchedule();
   const repairDiffMap = buildRepairDiffMap();
@@ -650,9 +672,17 @@ function renderScheduleTableFromState() {
 
   const search = scheduleState.search;
   const selected = scheduleState.viewMode === "class" ? scheduleState.selectedClass : scheduleState.selectedTeacher;
+  const availableTargets = scheduleState.viewMode === "class" ? scheduleState.classes : scheduleState.teachers;
+  const targetLabel = scheduleState.viewMode === "class" ? "classe" : "professeur";
   if (!selected) {
     table.replaceChildren();
     setEmptyMessage("Planning généré : choisissez une classe ou un professeur.");
+    return;
+  }
+
+  if (!availableTargets.includes(selected)) {
+    table.replaceChildren();
+    setEmptyMessage(`Le ${targetLabel} sélectionné n'existe plus. Choisissez une autre cible.`);
     return;
   }
 
@@ -822,6 +852,7 @@ async function simulateRepairProposal() {
   }
   const btn = $("simulate-repair-btn");
   setLoading(btn, true, "Simulation...");
+  setRepairActionLoading(true);
   scheduleState.isRepairing = true;
   renderRepairStatus("Simulation de réparation en cours...", "loading");
   try {
@@ -847,6 +878,7 @@ async function simulateRepairProposal() {
     notify(error.message, "error");
   } finally {
     scheduleState.isRepairing = false;
+    setRepairActionLoading(false);
     setLoading(btn, false);
   }
 }
@@ -930,14 +962,9 @@ async function acceptRepairProposal() {
   setRepairActionLoading(true);
   try {
     await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/accept`, { method: "POST" });
-    scheduleState.repairProposal = null;
-    scheduleState.repairPreview = null;
-    scheduleState.repairViewMode = "current";
-    updateRepairViewToggle();
+    resetRepairState("Proposition acceptée. Le planning actif a été mis à jour.", "success");
     await refreshScheduleTable();
-    renderRepairProposal(null);
     renderScheduleTableFromState();
-    renderRepairStatus("Proposition acceptée. Le planning actif a été mis à jour.", "success");
     notify("Réparation acceptée.");
   } catch (error) {
     renderRepairStatus(`Échec d'acceptation : ${error.message}`, "error");
@@ -957,13 +984,8 @@ async function rejectRepairProposal() {
   setRepairActionLoading(true);
   try {
     await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}`, { method: "DELETE" });
-    scheduleState.repairProposal = null;
-    scheduleState.repairPreview = null;
-    scheduleState.repairViewMode = "current";
-    updateRepairViewToggle();
-    renderRepairProposal(null);
+    resetRepairState("Proposition refusée. Le planning actif est inchangé.", "success");
     renderScheduleTableFromState();
-    renderRepairStatus("Proposition refusée. Le planning actif est inchangé.", "success");
     notify("Proposition refusée.");
   } catch (error) {
     renderRepairStatus(`Échec du refus : ${error.message}`, "error");
@@ -980,8 +1002,14 @@ async function exportRepairProposalPdf() {
     notify("Aucune proposition à exporter.", "error");
     return;
   }
+  setRepairActionLoading(true);
   try {
-    const response = await fetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
+    let response;
+    try {
+      response = await fetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
+    } catch (error) {
+      throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
+    }
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       throw new Error(err.detail || "Export PDF repair indisponible.");
@@ -999,6 +1027,8 @@ async function exportRepairProposalPdf() {
   } catch (error) {
     renderRepairStatus(`Échec export PDF Repair : ${error.message}`, "error");
     notify(error.message, "error");
+  } finally {
+    setRepairActionLoading(false);
   }
 }
 
@@ -1007,6 +1037,15 @@ function renderRepairStatus(message, level = "info") {
   if (!el) return;
   el.textContent = message;
   el.dataset.level = level;
+}
+
+function resetRepairState(message = "Aucune proposition de réparation.", level = "info") {
+  scheduleState.repairProposal = null;
+  scheduleState.repairPreview = null;
+  scheduleState.repairViewMode = "current";
+  renderRepairProposal(null);
+  updateRepairViewToggle();
+  renderRepairStatus(message, level);
 }
 
 function setRepairActionLoading(isLoading) {
@@ -1108,11 +1147,7 @@ async function refreshScheduleTable() {
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   if (!scheduleState.hasGeneratedSchedule) {
-    scheduleState.repairProposal = null;
-    scheduleState.repairPreview = null;
-    scheduleState.repairViewMode = "current";
-    renderRepairProposal(null);
-    updateRepairViewToggle();
+    resetRepairState();
   }
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
@@ -1164,11 +1199,7 @@ async function refresh() {
   scheduleState.schedule = schedule || {};
   scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
   if (!scheduleState.hasGeneratedSchedule) {
-    scheduleState.repairProposal = null;
-    scheduleState.repairPreview = null;
-    scheduleState.repairViewMode = "current";
-    renderRepairProposal(null);
-    updateRepairViewToggle();
+    resetRepairState();
   }
   scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
   const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
@@ -1197,12 +1228,7 @@ async function runAction(buttonId, path, loadingLabel) {
       $("demo-summary").textContent = "Aucune démo volumineuse chargée.";
       renderGenerationBanner("Données effacées. Vous pouvez recharger une démo ou saisir vos données.", "info");
       scheduleState.hasGeneratedSchedule = false;
-      scheduleState.repairProposal = null;
-      scheduleState.repairPreview = null;
-      scheduleState.repairViewMode = "current";
-      renderRepairProposal(null);
-      updateRepairViewToggle();
-      renderRepairStatus("Aucune proposition de réparation.", "info");
+      resetRepairState();
       renderScheduleTableFromState();
     }
   } catch (error) {
@@ -1245,10 +1271,7 @@ async function runGenerateSchedule() {
     const res = await api("/schedule/generate", { method: "POST" });
     if (res.success === false) throw new Error(res.message || "Échec de génération");
     scheduleState.latestMetrics = res;
-    scheduleState.repairProposal = null;
-    scheduleState.repairPreview = null;
-    renderRepairProposal(null);
-    renderRepairStatus("Aucune proposition de réparation.", "info");
+    resetRepairState();
     renderQualityMetrics(res);
     await refreshScheduleTable();
     scheduleState.hasGeneratedSchedule = true;
@@ -1269,7 +1292,12 @@ async function runGenerateSchedule() {
 
 async function exportSchedule(format) {
   const path = format === "pdf" ? "/schedule/export/pdf" : format === "json" ? "/schedule/export/json" : "/schedule/export/csv";
-  const response = await fetch(path);
+  let response;
+  try {
+    response = await fetch(path);
+  } catch (error) {
+    throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
+  }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || "Aucun planning à exporter.");
@@ -1287,6 +1315,20 @@ async function exportSchedule(format) {
 }
 
 function bindForms() {
+  const bindExport = (buttonId, format) => {
+    const btn = $(buttonId);
+    btn.addEventListener("click", async () => {
+      setLoading(btn, true, "Export...");
+      try {
+        await exportSchedule(format);
+      } catch (error) {
+        notify(error.message, "error");
+      } finally {
+        setLoading(btn, false);
+      }
+    });
+  };
+
   const bindSubmit = (formId, path, payloadBuilder) => $(formId).addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -1382,9 +1424,9 @@ function bindForms() {
   $("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Chargement..."));
   $("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
   $("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Suppression..."));
-  $("export-json-btn").addEventListener("click", () => exportSchedule("json").catch((error) => notify(error.message, "error")));
-  $("export-csv-btn").addEventListener("click", () => exportSchedule("csv").catch((error) => notify(error.message, "error")));
-  $("export-pdf-btn").addEventListener("click", () => exportSchedule("pdf").catch((error) => notify(error.message, "error")));
+  bindExport("export-json-btn", "json");
+  bindExport("export-csv-btn", "csv");
+  bindExport("export-pdf-btn", "pdf");
 
   $("schedule-view-mode").addEventListener("change", (e) => { scheduleState.viewMode = e.target.value; syncScheduleFiltersUI(); renderScheduleTableFromState(); });
   $("schedule-class-filter").addEventListener("change", (e) => { scheduleState.selectedClass = e.target.value; renderScheduleTableFromState(); });

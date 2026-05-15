@@ -2,6 +2,20 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.pytest-temp/
 *.sqlite3
 *.db
 backend/benchmarks/results/
+
+# Temporary runtime artifacts
+.tmp/
+*.log
+
+# SQLite auxiliary files
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Generated export artifacts
+/schedule.pdf
+/schedule-page-*.png
+/repair-report-*.pdf
