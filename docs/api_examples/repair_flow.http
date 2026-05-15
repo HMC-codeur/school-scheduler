@@ -1,0 +1,82 @@
+@baseUrl = http://127.0.0.1:8000
+@proposal_id = paste-proposal-id-here
+
+### 1. Health check
+GET {{baseUrl}}/health
+
+### 2. Load demo data
+POST {{baseUrl}}/schedule/load-demo
+
+### 3. Generate current schedule
+POST {{baseUrl}}/schedule/generate
+
+### 4. Read active schedule
+GET {{baseUrl}}/schedule
+
+### 5A. Simulate repair_teacher with commit=false and balanced policy
+# Copy the proposal_id from this response, then paste it into @proposal_id above.
+POST {{baseUrl}}/schedule/repair
+Content-Type: application/json
+
+{
+  "repair_type": "repair_teacher",
+  "repair_target": "Mr. Khan",
+  "repair_policy": "balanced",
+  "time_budget_seconds": 5,
+  "commit": false
+}
+
+### 5B. Simulate repair_class with strict policy
+# Copy proposal_id from the response if you want to preview, accept, or reject it.
+POST {{baseUrl}}/schedule/repair
+Content-Type: application/json
+
+{
+  "repair_type": "repair_class",
+  "repair_target": "Grade 7A",
+  "repair_policy": "strict",
+  "time_budget_seconds": 5,
+  "commit": false
+}
+
+### 5C. Simulate repair_day with flexible policy
+# Copy proposal_id from the response if you want to preview, accept, or reject it.
+POST {{baseUrl}}/schedule/repair
+Content-Type: application/json
+
+{
+  "repair_type": "repair_day",
+  "day": "Mon",
+  "repair_policy": "flexible",
+  "time_budget_seconds": 5,
+  "commit": false
+}
+
+### 5D. Direct repair_teacher with commit=true
+# This commits immediately if the repair succeeds and hard_conflicts == 0.
+POST {{baseUrl}}/schedule/repair
+Content-Type: application/json
+
+{
+  "repair_type": "repair_teacher",
+  "repair_target": "Mr. Khan",
+  "repair_policy": "balanced",
+  "time_budget_seconds": 5,
+  "commit": true
+}
+
+### 6. Preview repair proposal
+# Replace @proposal_id above with a real proposal_id returned by a commit=false simulation.
+# Preview is read-only and never changes the active schedule.
+GET {{baseUrl}}/schedule/repair/proposals/{{proposal_id}}
+
+### 7. Accept repair proposal
+# Accept validates hard conflicts, commits the proposed schedule, then removes the proposal.
+POST {{baseUrl}}/schedule/repair/proposals/{{proposal_id}}/accept
+
+### 8. Reject/delete repair proposal
+# Delete removes the proposal and never changes the active schedule.
+DELETE {{baseUrl}}/schedule/repair/proposals/{{proposal_id}}
+
+### Optional. Read active schedule after accept/delete
+GET {{baseUrl}}/schedule

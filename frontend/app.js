@@ -1,0 +1,1403 @@
+const API = "";
+const scheduleState = {
+  slots: [],
+  classes: [],
+  teachers: [],
+  subjects: [],
+  schedule: {},
+  selectedClass: "",
+  selectedTeacher: "",
+  viewMode: "class",
+  search: "",
+  hasGeneratedSchedule: false,
+  isGenerating: false,
+  scheduleOptions: [],
+  selectedOptionId: null,
+  backendStatus: "unknown",
+  latestMetrics: null,
+  latestDiagnosis: null,
+  repairProposal: null,
+  repairPreview: null,
+  repairViewMode: "current",
+  isRepairing: false,
+  activeView: "dashboard-view",
+};
+
+const CONDITION_LABELS = {
+  teacher_unavailable: "Professeur indisponible",
+  class_unavailable: "Classe indisponible",
+  subject_morning_preference: "Matière le matin",
+  subject_prefer_morning: "Matière le matin",
+  teacher_prefer_morning: "Professeur le matin",
+  avoid_subject_repeat: "Éviter répétition",
+  avoid_subject_repeat_same_day: "Éviter répétition",
+  avoid_long_sequence: "Éviter longues séries",
+};
+
+const PREFERENCE_CONDITIONS = new Set(["subject_morning_preference", "subject_prefer_morning", "teacher_prefer_morning", "avoid_subject_repeat", "avoid_subject_repeat_same_day", "avoid_long_sequence"]);
+
+const SCORE_CATEGORY_LABELS = {
+  class_gap: "Trous classes",
+  teacher_gap: "Trous professeurs",
+  class_long_sequence: "Longues séries",
+  teacher_long_sequence: "Longues séries",
+  avoid_long_sequence: "Longues séries",
+  teacher_conflict: "Conflits",
+  class_conflict: "Conflits",
+  unplaced_sessions: "Sessions non placées",
+  subject_morning_preference: "Préférences respectées",
+  teacher_morning_preference: "Préférences respectées",
+  class_load_balance: "Bonus",
+  teacher_load_balance: "Bonus",
+  global_distribution: "Bonus",
+};
+
+const $ = (id) => document.getElementById(id);
+const create = (tag, text, className) => {
+  const el = document.createElement(tag);
+  if (text !== undefined) el.textContent = text;
+  if (className) el.className = className;
+  return el;
+};
+
+function setActiveView(viewId) {
+  const target = $(viewId) ? viewId : "dashboard-view";
+  scheduleState.activeView = target;
+  document.querySelectorAll(".view-section").forEach((section) => {
+    section.classList.toggle("active", section.id === target);
+  });
+  document.querySelectorAll(".nav-link").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === target);
+  });
+  const section = $(target);
+  $("page-title").textContent = section?.dataset.title || "Dashboard";
+  $("page-subtitle").textContent = section?.dataset.subtitle || "";
+}
+
+function initializeNavigation() {
+  document.querySelectorAll(".nav-link[data-view]").forEach((btn) => {
+    btn.addEventListener("click", () => setActiveView(btn.dataset.view));
+  });
+  setActiveView(scheduleState.activeView);
+}
+
+async function api(path, requestOptions) {
+  const options = requestOptions || {};
+  const response = await fetch(`${API}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    const detail = err?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((item) => `${(item.loc || []).join(".")}: ${item.msg}`).join(" | ")
+      : (typeof detail === "string" ? detail : (err.message || "Request failed"));
+    throw new Error(message);
+  }
+  return response.json().catch(() => ({}));
+}
+
+async function refreshBackendStatus() {
+  const pill = $("backend-status-pill");
+  if (!pill) return;
+  try {
+    await api("/health");
+    scheduleState.backendStatus = "ok";
+    pill.textContent = "Backend connecté";
+    pill.className = "status-pill status-success";
+  } catch (_) {
+    scheduleState.backendStatus = "error";
+    pill.textContent = "Backend indisponible";
+    pill.className = "status-pill status-error";
+  }
+}
+
+function notify(message, type = "success") {
+  const el = $("toast");
+  el.textContent = message;
+  el.className = `toast ${type}`;
+  setTimeout(() => (el.className = "toast hidden"), 3500);
+}
+
+function scoreLabel(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return { label: "Non généré", className: "muted" };
+  if (numeric >= 90) return { label: "Excellent", className: "excellent" };
+  if (numeric >= 75) return { label: "Bon", className: "good" };
+  if (numeric >= 50) return { label: "Moyen", className: "average" };
+  return { label: "À améliorer", className: "bad" };
+}
+
+function updateDashboardMetrics(metrics = scheduleState.latestMetrics || {}) {
+  const score = Number(metrics?.quality_score);
+  const hasScore = Number.isFinite(score);
+  const label = scoreLabel(hasScore ? score : null);
+  $("dashboard-score").textContent = hasScore ? `${score}/100` : "--";
+  $("dashboard-score-badge").textContent = label.label;
+  $("dashboard-score-badge").className = `score-badge ${label.className}`;
+  $("generation-score-summary").textContent = hasScore ? `${score}/100` : "--/100";
+  $("generation-score-label").textContent = label.label;
+  $("generation-score-label").className = `score-badge ${label.className}`;
+  $("dashboard-conflicts").textContent = String(metrics?.conflicts_count ?? "-");
+  const scheduled = metrics?.scheduled_sessions;
+  const required = metrics?.required_sessions;
+  $("dashboard-sessions").textContent = scheduled != null && required != null ? `${scheduled}/${required}` : "-";
+  $("dashboard-generation-time").textContent = metrics?.generation_time_ms != null ? `${metrics.generation_time_ms} ms` : "-";
+}
+
+function setLoading(button, isLoading, text) {
+  if (!button) return;
+  button.disabled = isLoading;
+  if (isLoading) {
+    button.dataset.originalText = button.textContent;
+    button.textContent = text;
+    return;
+  }
+  button.textContent = button.dataset.originalText || button.textContent;
+}
+
+function setButtonsLoading(buttons, isLoading, text) {
+  Array.from(buttons || []).forEach((button) => setLoading(button, isLoading, text));
+}
+
+function getUnavailableSlots() {
+  return Array.from($("teacher-unavailable-slots").selectedOptions).map((opt) => opt.value);
+}
+
+function updateConditionFieldVisibility() {
+  const type = $("condition-type").value;
+  document.querySelectorAll("[data-condition-field]").forEach((el) => {
+    const types = el.dataset.conditionField.split(" ");
+    el.style.display = types.includes(type) ? "" : "none";
+  });
+  buildConditionText();
+}
+
+function buildConditionText() {
+  const type = $("condition-type").value;
+  const teacher = $("condition-teacher-name").value.trim();
+  const className = $("condition-class-name").value.trim();
+  const subject = $("condition-subject-name").value.trim();
+  const slot = $("condition-slot").value;
+  let text = "Condition personnalisée";
+  if (type === "teacher_unavailable") text = `Professeur ${teacher || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
+  if (type === "class_unavailable") text = `Classe ${className || "(à définir)"} indisponible sur ${slot || "(créneau à définir)"}`;
+  if (type === "subject_prefer_morning") text = `Placer ${subject || "(matière à définir)"} le matin si possible`;
+  if (type === "teacher_prefer_morning") text = `Placer ${teacher || "(professeur à définir)"} le matin si possible`;
+  if (type === "avoid_subject_repeat_same_day") text = `Éviter de répéter ${subject || "(matière à définir)"}${className ? ` pour ${className}` : ""} le même jour`;
+  if (type === "avoid_long_sequence") text = `Éviter les longues séries de cours consécutifs${className ? ` pour ${className}` : ""}${teacher ? ` pour ${teacher}` : ""}`;
+  $("condition-text").value = text;
+}
+
+function updateUnavailableSlotsSummary() {
+  const selected = getUnavailableSlots();
+  $("teacher-unavailable-selected").textContent = selected.length
+    ? `Créneaux sélectionnés : ${selected.join(", ")}`
+    : "Aucun créneau sélectionné.";
+}
+
+function renderGenerationBanner(message, level = "info") {
+  const el = $("generation-status");
+  el.textContent = message;
+  el.dataset.level = level;
+  const mirror = $("generation-status-mirror");
+  if (mirror) {
+    mirror.textContent = message;
+    mirror.dataset.level = level;
+  }
+}
+
+function resetFormWithDefaults(form) {
+  form.reset();
+  const excluded = (form.dataset.resetExclusions || "").split(",").map((id) => id.trim()).filter(Boolean);
+  excluded.forEach((id) => {
+    if (id === "class-max-lessons") $(id).value = 6;
+    if (id === "teacher-max-lessons") $(id).value = 6;
+  });
+  if (form.id === "teacher-form") {
+    Array.from($("teacher-unavailable-slots").options).forEach((opt) => (opt.selected = false));
+  }
+  if (form.id === "condition-form") updateConditionFieldVisibility();
+  updateUnavailableSlotsSummary();
+}
+
+function fillList(id, items) {
+  const root = $(id);
+  if (!items.length) return root.replaceChildren(create("li", "-"));
+  root.replaceChildren(...items.map((x) => create("li", x)));
+}
+
+function fillTimeSettingsForm(timeSettings) {
+  if (!timeSettings) return;
+  $("day-start-time").value = timeSettings.day_start_time;
+  $("day-end-time").value = timeSettings.day_end_time;
+  $("lesson-duration-minutes").value = timeSettings.lesson_duration_minutes;
+  $("break-duration-minutes").value = timeSettings.break_duration_minutes;
+  $("working-days").value = timeSettings.working_days.join(",");
+  $("lunch-break-start").value = timeSettings.lunch_break_start || "";
+  $("lunch-break-end").value = timeSettings.lunch_break_end || "";
+}
+
+function populateUnavailableSlots(slots) {
+  const select = $("teacher-unavailable-slots");
+  const currentSelection = new Set(getUnavailableSlots());
+  select.replaceChildren(...slots.map((slot) => {
+    const opt = create("option", slot);
+    opt.value = slot;
+    return opt;
+  }));
+  Array.from(select.options).forEach((opt) => { opt.selected = currentSelection.has(opt.value); });
+
+  const conditionSlotOptions = $("condition-slot-options");
+  const opts = slots.map((slot) => {
+    const opt = create("option");
+    opt.value = slot;
+    return opt;
+  });
+  conditionSlotOptions.replaceChildren(...opts);
+  updateUnavailableSlotsSummary();
+}
+
+function populateConditionOptions() {
+  const fillDatalist = (id, values) => {
+    $(id).replaceChildren(...values.map((value) => {
+      const opt = create("option");
+      opt.value = value;
+      return opt;
+    }));
+  };
+  fillDatalist("condition-class-options", scheduleState.classes);
+  fillDatalist("condition-teacher-options", scheduleState.teachers);
+  fillDatalist("condition-subject-options", scheduleState.subjects);
+}
+
+function requireKnownValue(value, values, label) {
+  if (!value) throw new Error(`Veuillez saisir ${label}.`);
+  if (!values.includes(value)) throw new Error(`${label} inconnu : ${value}`);
+}
+
+function describeConditionTarget(condition) {
+  const parts = [];
+  if (condition.teacher_name) parts.push(`Professeur: ${condition.teacher_name}`);
+  if (condition.class_name) parts.push(`Classe: ${condition.class_name}`);
+  if (condition.subject_name) parts.push(`Matière: ${condition.subject_name}`);
+  if (condition.slot) parts.push(`Créneau: ${condition.slot}`);
+  return parts.join(" · ") || "Cible globale";
+}
+
+function renderConstraintDiagnosis(diagnosis) {
+  const root = $("constraint-diagnosis");
+  if (!diagnosis) {
+    root.replaceChildren();
+    return;
+  }
+  const constraintIssues = (diagnosis.blocking_issues || []).filter((issue) => issue.toLowerCase().includes("contrainte"));
+  if (!constraintIssues.length) {
+    root.replaceChildren(create("p", "Diagnostic contraintes : aucun blocage détecté."));
+    return;
+  }
+  root.replaceChildren(...constraintIssues.map((issue) => create("p", issue, "blocking")));
+}
+
+function renderDiagnostics(diagnosis) {
+  scheduleState.latestDiagnosis = diagnosis || null;
+  const summary = $("diagnostics-summary");
+  const details = $("diagnostics-details");
+  if (!diagnosis) {
+    summary.className = "panel diagnostics-summary";
+    summary.replaceChildren(create("h3", "Diagnostic"), create("p", "Diagnostic indisponible.", "hint"));
+    details.replaceChildren(create("p", "Aucun détail disponible.", "hint"));
+    return;
+  }
+
+  const canGenerate = diagnosis.can_generate === true;
+  const stats = diagnosis.stats || {};
+  const blocking = diagnosis.blocking_issues || [];
+  const warnings = diagnosis.warnings || [];
+  summary.className = `panel diagnostics-summary ${canGenerate ? "ready" : "blocked"}`;
+  summary.replaceChildren(
+    create("h3", canGenerate ? "Prêt à générer" : "À corriger avant génération"),
+    create(
+      "p",
+      canGenerate
+        ? "Les données semblent cohérentes pour générer un planning."
+        : `${blocking.length || 1} point${blocking.length > 1 ? "s" : ""} bloque${blocking.length > 1 ? "nt" : ""} la génération.`,
+      canGenerate ? "diagnostic-card" : "diagnostic-card blocking",
+    ),
+  );
+
+  const statsDetails = document.createElement("details");
+  statsDetails.open = true;
+  statsDetails.append(create("summary", "Synthèse des volumes"));
+  const statsList = create("ul");
+  [
+    `Classes : ${stats.classes ?? 0}`,
+    `Professeurs : ${stats.teachers ?? 0}`,
+    `Matières : ${stats.subjects ?? 0}`,
+    `Créneaux : ${stats.slots ?? 0}`,
+    `Conditions : ${stats.conditions ?? 0}`,
+    `Sessions requises : ${stats.required_sessions ?? 0}`,
+    `Places classe disponibles : ${stats.available_class_sessions ?? 0}`,
+  ].forEach((line) => statsList.append(create("li", line)));
+  statsDetails.append(statsList);
+
+  const blockingDetails = document.createElement("details");
+  blockingDetails.open = !canGenerate;
+  blockingDetails.append(create("summary", "Blocages"));
+  const blockingList = create("div");
+  blockingList.className = "diagnostics-details";
+  if (!blocking.length) blockingList.append(create("p", "Aucun blocage détecté.", "diagnostic-card"));
+  blocking.forEach((issue) => blockingList.append(create("p", issue, "diagnostic-card blocking")));
+  blockingDetails.append(blockingList);
+
+  const warningDetails = document.createElement("details");
+  warningDetails.append(create("summary", "Avertissements"));
+  const warningList = create("div");
+  warningList.className = "diagnostics-details";
+  if (!warnings.length) warningList.append(create("p", "Aucun avertissement.", "diagnostic-card"));
+  warnings.forEach((warning) => warningList.append(create("p", warning, "diagnostic-card warning")));
+  warningDetails.append(warningList);
+
+  details.replaceChildren(statsDetails, blockingDetails, warningDetails);
+}
+
+function renderConditionsList(conditions) {
+  const list = $("conditions-list");
+  if (!conditions.length) return list.replaceChildren(create("p", "Aucune condition ajoutée.", "hint"));
+
+  const items = conditions.map((condition) => {
+    const li = create("article", undefined, "conditions-item");
+    const isPreference = condition.hard === false || PREFERENCE_CONDITIONS.has(condition.condition_type);
+    const main = create("div", undefined, "condition-main");
+    const meta = create("div", undefined, "condition-meta");
+    const badge = create("span", isPreference ? "Préférence" : "Obligatoire", `condition-badge ${isPreference ? "soft" : "hard"}`);
+    meta.append(
+      badge,
+      create("span", CONDITION_LABELS[condition.condition_type] || condition.condition_type, "hint"),
+      create("span", describeConditionTarget(condition), "hint"),
+    );
+    main.append(
+      meta,
+      create("strong", condition.text || condition.description || "Condition"),
+    );
+    const btn = create("button", "Supprimer", "danger");
+    btn.dataset.id = String(condition.id);
+    li.append(main, btn);
+    return li;
+  });
+
+  list.replaceChildren(...items);
+  Array.from(list.querySelectorAll("button[data-id]")).forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/conditions/${btn.dataset.id}`, { method: "DELETE" });
+        notify("Condition supprimée.");
+        await refresh();
+      } catch (error) {
+        notify(error.message, "error");
+      }
+    });
+  });
+}
+
+function populateScheduleFilters() {
+  const classSelect = $("schedule-class-filter");
+  const teacherSelect = $("schedule-teacher-filter");
+
+  const classDefault = create("option", "Choisir une classe");
+  classDefault.value = "";
+  classSelect.replaceChildren(classDefault, ...scheduleState.classes.map((name) => {
+    const option = create("option", name);
+    option.value = name;
+    return option;
+  }));
+
+  const teacherDefault = create("option", "Choisir un professeur");
+  teacherDefault.value = "";
+  teacherSelect.replaceChildren(teacherDefault, ...scheduleState.teachers.map((name) => {
+    const option = create("option", name);
+    option.value = name;
+    return option;
+  }));
+
+  if (!scheduleState.classes.includes(scheduleState.selectedClass)) scheduleState.selectedClass = "";
+  if (!scheduleState.teachers.includes(scheduleState.selectedTeacher)) scheduleState.selectedTeacher = "";
+  classSelect.value = scheduleState.selectedClass;
+  teacherSelect.value = scheduleState.selectedTeacher;
+  const repairTarget = $("repair-target");
+  if (repairTarget && !repairTarget.value) repairTarget.value = getDefaultRepairTarget($("repair-type")?.value || "repair_teacher");
+  syncScheduleFiltersUI();
+}
+
+function syncScheduleFiltersUI() {
+  const isClassView = scheduleState.viewMode === "class";
+  $("schedule-class-filter").disabled = !isClassView;
+  $("schedule-teacher-filter").disabled = isClassView;
+}
+
+function getSelectedScheduleOption() {
+  const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
+  if (!options.length) return null;
+  return options.find((option) => option.selected === true)
+    || options.find((option) => option.id === scheduleState.selectedOptionId)
+    || options[0]
+    || null;
+}
+
+function renderQualityMetrics(metrics) {
+  const card = $("quality-card");
+  const hasMetrics = Number.isFinite(metrics?.quality_score);
+  scheduleState.latestMetrics = hasMetrics ? { ...(scheduleState.latestMetrics || {}), ...metrics } : null;
+  updateDashboardMetrics(scheduleState.latestMetrics || {});
+  if (!hasMetrics) {
+    card.className = "quality-card quality-unknown";
+    $("quality-score").textContent = "--/100";
+    $("quality-conflicts").textContent = "-";
+    $("quality-gaps").textContent = "-";
+    $("quality-repeats").textContent = "-";
+    $("quality-sequences").textContent = "-";
+    $("quality-balance").textContent = "-";
+    return;
+  }
+
+  const score = Number(metrics.quality_score);
+  const level = score >= 75 ? "good" : score >= 50 ? "average" : "bad";
+  card.className = `quality-card quality-${level}`;
+  $("quality-score").textContent = `${score}/100`;
+  $("quality-conflicts").textContent = String(metrics.conflicts_count ?? 0);
+  $("quality-gaps").textContent = String(metrics.gaps_count ?? 0);
+  $("quality-repeats").textContent = String(metrics.repeated_subjects_count ?? 0);
+  $("quality-sequences").textContent = String(metrics.long_sequences_count ?? 0);
+  $("quality-balance").textContent = String(metrics.load_balance_status ?? "-");
+}
+
+function renderScoreBreakdown(option) {
+  const root = $("score-breakdown-list");
+  const technicalRoot = $("score-technical-list");
+  const breakdown = Array.isArray(option?.score_breakdown) ? option.score_breakdown : [];
+  $("score-debug-option").textContent = scheduleState.selectedOptionId || "-";
+  $("score-debug-options-count").textContent = String(scheduleState.scheduleOptions.length || 0);
+  $("score-debug-signature").textContent = option?.schedule_signature || "-";
+  $("score-debug-items").textContent = String(breakdown.length);
+  $("score-debug-received").textContent = Number.isFinite(Number(option?.quality_score)) ? String(Number(option.quality_score)) : "--";
+  $("score-final").textContent = Number.isFinite(Number(option?.quality_score)) ? `${Number(option.quality_score)}/100` : "--/100";
+  if (!breakdown.length) {
+    root.replaceChildren(create("li", "Aucun détail de score disponible pour cette option.", "hint"));
+    technicalRoot.replaceChildren(create("li", "Aucun détail technique disponible.", "hint"));
+    return;
+  }
+
+  const visibleItems = breakdown.filter((item) => Number(item?.points || 0) !== 0);
+  const grouped = summarizeScoreBreakdown(visibleItems);
+  const summaryItems = grouped.map((item) => {
+    const points = Number(item.points || 0);
+    const prefix = points >= 0 ? "+" : "";
+    const li = create("li", undefined, points >= 0 ? "score-positive" : "score-negative");
+    li.append(
+      create("strong", `${prefix}${points} ${item.category}`),
+      create("span", item.summary, "score-summary-text"),
+    );
+    return li;
+  });
+  root.replaceChildren(...summaryItems.length ? summaryItems : [create("li", "Aucun impact affichable : seuls des ajustements à 0 point ont été reçus.", "hint")]);
+
+  const technicalItems = visibleItems
+    .slice()
+    .sort((a, b) => Math.abs(Number(b?.points || 0)) - Math.abs(Number(a?.points || 0)))
+    .slice(0, 15)
+    .map((item) => {
+      const points = Number(item?.points || 0);
+      const prefix = points >= 0 ? "+" : "";
+      const li = create("li", undefined, points >= 0 ? "score-positive" : "score-negative");
+      const raw = Number(item?.raw_points ?? points);
+      const count = Number(item?.count || 1);
+      li.textContent = `${prefix}${points} ${item?.label || item?.rule || "Règle appliquée"} · count=${count} · raw=${raw}`;
+      return li;
+    });
+  technicalRoot.replaceChildren(...technicalItems.length ? technicalItems : [create("li", "Aucun détail non nul à afficher.", "hint")]);
+}
+
+function getScoreCategory(item) {
+  if (item?.category) return String(item.category);
+  const rule = String(item?.rule || "");
+  return SCORE_CATEGORY_LABELS[rule] || (Number(item?.points || 0) > 0 ? "Bonus" : "Autres pénalités");
+}
+
+function summarizeScoreBreakdown(items) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const category = getScoreCategory(item);
+    if (!groups.has(category)) {
+      groups.set(category, {
+        category,
+        points: 0,
+        raw_points: 0,
+        count: 0,
+        labels: [],
+        rules: new Set(),
+      });
+    }
+    const group = groups.get(category);
+    const points = Number(item?.points || 0);
+    group.points += points;
+    group.raw_points += Number(item?.raw_points ?? points);
+    group.count += Number(item?.count || 1);
+    group.rules.add(String(item?.rule || ""));
+    if (item?.label && group.labels.length < 3) group.labels.push(String(item.label));
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({ ...group, summary: summarizeScoreGroup(group) }))
+    .sort((a, b) => {
+      const categoryOrder = ["Conflits", "Sessions non placées", "Trous classes", "Trous professeurs", "Longues séries", "Préférences respectées", "Bonus"];
+      const aIndex = categoryOrder.indexOf(a.category);
+      const bIndex = categoryOrder.indexOf(b.category);
+      if (aIndex !== bIndex) return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+      return Math.abs(b.points) - Math.abs(a.points);
+    });
+}
+
+function summarizeScoreGroup(group) {
+  const count = Math.max(0, Number(group.count || 0));
+  if (group.category === "Trous classes") {
+    return `${count} trou${count > 1 ? "s" : ""} détecté${count > 1 ? "s" : ""} côté classes.`;
+  }
+  if (group.category === "Trous professeurs") {
+    return count > 3 ? "Plusieurs trous significatifs détectés côté professeurs." : `${count} trou${count > 1 ? "s" : ""} détecté${count > 1 ? "s" : ""} côté professeurs.`;
+  }
+  if (group.category === "Longues séries") {
+    return `${count} série${count > 1 ? "s" : ""} longue${count > 1 ? "s" : ""} à surveiller.`;
+  }
+  if (group.category === "Conflits") {
+    return `${count} conflit${count > 1 ? "s" : ""} détecté${count > 1 ? "s" : ""}.`;
+  }
+  if (group.category === "Sessions non placées") {
+    return `${count} session${count > 1 ? "s" : ""} non placée${count > 1 ? "s" : ""}.`;
+  }
+  if (group.category === "Préférences respectées") {
+    return group.labels[0] || "Préférence respectée.";
+  }
+  if (group.category === "Bonus") {
+    return group.labels[0] || "Bonus de qualité appliqué.";
+  }
+  return group.labels[0] || "Règles techniques regroupées.";
+}
+
+async function selectScheduleOption(optionId) {
+  await api(`/schedule/options/${encodeURIComponent(optionId)}/select`, { method: "POST" });
+  const [scheduleOptions, schedule] = await Promise.all([api("/schedule/options"), api("/schedule")]);
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
+  scheduleState.schedule = schedule || {};
+  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.selectedOptionId || optionId;
+  const selected = getSelectedScheduleOption();
+  renderScheduleOptions();
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected);
+  renderScheduleTableFromState();
+}
+
+function renderScheduleOptions() {
+  const root = $("schedule-options");
+  const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
+  if (!options.length) {
+    root.replaceChildren(create("p", "Aucune option générée.", "hint"));
+    return;
+  }
+  const cards = options.map((option) => {
+    const card = create("article", undefined, `schedule-option-card${scheduleState.selectedOptionId === option.id ? " selected" : ""}`);
+    card.append(
+      create("h4", option.id || option.label || "Option"),
+      create("p", `Score : ${option.quality_score ?? "--"}/100`),
+      create("p", `Statut : ${option.selected ? "sélectionnée" : "non sélectionnée"}`),
+      create("p", `Signature : ${option.schedule_signature || "-"}`),
+      create("p", `Description : ${option.description || "Option générée automatiquement."}`),
+    );
+    const btn = create("button", scheduleState.selectedOptionId === option.id ? "Option sélectionnée" : "Choisir cette option");
+    btn.disabled = scheduleState.selectedOptionId === option.id;
+    btn.addEventListener("click", () => selectScheduleOption(option.id).catch((error) => notify(error.message, "error")));
+    card.append(btn);
+    return card;
+  });
+  root.replaceChildren(...cards);
+}
+
+function renderScheduleTableFromState() {
+  const table = $("schedule-table");
+  const emptyMessage = $("schedule-empty-message");
+  const { slots, classes } = scheduleState;
+  const schedule = getDisplayedSchedule();
+  const repairDiffMap = buildRepairDiffMap();
+
+  const setEmptyMessage = (msg) => {
+    emptyMessage.textContent = msg;
+    emptyMessage.classList.remove("hidden");
+  };
+  const hideEmptyMessage = () => emptyMessage.classList.add("hidden");
+  const emptyCell = () => create("span", "-", "empty-cell");
+
+  if (!scheduleState.hasGeneratedSchedule) {
+    table.replaceChildren();
+    setEmptyMessage("Aucun emploi du temps généré pour le moment.");
+    return;
+  }
+
+  if (!classes.length || !slots.length) {
+    table.replaceChildren();
+    setEmptyMessage("Ajoutez des classes et des créneaux pour afficher un planning.");
+    return;
+  }
+
+  const search = scheduleState.search;
+  const selected = scheduleState.viewMode === "class" ? scheduleState.selectedClass : scheduleState.selectedTeacher;
+  if (!selected) {
+    table.replaceChildren();
+    setEmptyMessage("Planning généré : choisissez une classe ou un professeur.");
+    return;
+  }
+
+  if (search && !selected.toLowerCase().includes(search)) {
+    table.replaceChildren();
+    setEmptyMessage("Aucun résultat avec cette recherche.");
+    return;
+  }
+
+  const headerRow = create("tr");
+  headerRow.append(create("th", "Créneau", "slot-col"), create("th", selected));
+
+  const rows = slots.map((slot) => {
+    const tr = create("tr");
+    const slotTd = create("td", slot, "slot-col");
+    const td = create("td");
+
+    let subject = "";
+    let secondary = "";
+    if (scheduleState.viewMode === "class") {
+      const cell = schedule?.[slot]?.[selected];
+      subject = cell?.subject || "";
+      secondary = cell?.teacher || "";
+    } else {
+      const className = classes.find((name) => schedule?.[slot]?.[name]?.teacher === selected);
+      const cell = className ? schedule?.[slot]?.[className] : null;
+      subject = cell?.subject || "";
+      secondary = className ? `Classe: ${className}` : "";
+    }
+
+    const repairState = getRepairCellState(repairDiffMap, slot, selected, scheduleState.viewMode);
+    if (!subject) {
+      td.append(emptyCell());
+    } else {
+      td.append(create("div", subject, "cell-subject"), create("div", secondary, "cell-teacher"));
+    }
+    renderRepairOverlay(td, repairState);
+
+    tr.append(slotTd, td);
+    return tr;
+  });
+
+  table.replaceChildren(headerRow, ...rows);
+  hideEmptyMessage();
+}
+
+function getDisplayedSchedule() {
+  if (scheduleState.repairViewMode === "proposal" && scheduleState.repairPreview?.proposed_schedule) {
+    return scheduleState.repairPreview.proposed_schedule || {};
+  }
+  return scheduleState.schedule || {};
+}
+
+function buildRepairDiffMap() {
+  const source = scheduleState.repairPreview || scheduleState.repairProposal || null;
+  const changedItems = Array.isArray(source?.changed_items) ? source.changed_items : [];
+  const map = {
+    class: new Map(),
+    teacher: new Map(),
+  };
+  changedItems.forEach((item) => {
+    const className = item?.class_name || item?.class_id || "";
+    const subject = item?.subject_name || item?.subject_id || "Cours";
+    const sessionId = item?.session_id || "";
+    const oldSlot = item?.old_slot || "";
+    const newSlot = item?.new_slot || "";
+    const oldTeacher = item?.old_teacher_name || item?.old_teacher_id || "";
+    const newTeacher = item?.new_teacher_name || item?.new_teacher_id || "";
+    const changeType = item?.change_type || "";
+
+    if (oldSlot && className) addRepairDiffEntry(map.class, oldSlot, className, {
+      state: changeType === "removed" ? "removed" : "moved removed",
+      label: changeType === "removed" ? "Retiré" : "Déplacé depuis ici",
+      subject,
+      sessionId,
+      detail: `${oldSlot} → ${newSlot || "-"}`,
+    });
+    if (newSlot && className) addRepairDiffEntry(map.class, newSlot, className, {
+      state: changeType === "added" ? "added" : "moved added",
+      label: changeType === "added" ? "Ajouté" : "Déplacé ici",
+      subject,
+      sessionId,
+      detail: `${oldSlot || "-"} → ${newSlot}`,
+    });
+    if (oldSlot && oldTeacher) addRepairDiffEntry(map.teacher, oldSlot, oldTeacher, {
+      state: changeType === "removed" || changeType === "teacher_changed" ? "removed" : "moved removed",
+      label: changeType === "teacher_changed" ? "Professeur changé" : "Déplacé depuis ici",
+      subject,
+      className,
+      sessionId,
+      detail: `${oldTeacher || "-"} → ${newTeacher || "-"}`,
+    });
+    if (newSlot && newTeacher) addRepairDiffEntry(map.teacher, newSlot, newTeacher, {
+      state: changeType === "added" || changeType === "teacher_changed" ? "added" : "moved added",
+      label: changeType === "teacher_changed" ? "Nouveau professeur" : "Déplacé ici",
+      subject,
+      className,
+      sessionId,
+      detail: `${oldTeacher || "-"} → ${newTeacher || "-"}`,
+    });
+  });
+  return map;
+}
+
+function addRepairDiffEntry(map, slot, resource, entry) {
+  const key = `${slot}||${resource}`;
+  const current = map.get(key) || [];
+  current.push(entry);
+  map.set(key, current);
+}
+
+function getRepairCellState(diffMap, slot, selected, viewMode) {
+  if (!diffMap || !slot || !selected) return [];
+  const bucket = viewMode === "teacher" ? diffMap.teacher : diffMap.class;
+  return bucket.get(`${slot}||${selected}`) || [];
+}
+
+function renderRepairOverlay(cell, states) {
+  const items = Array.isArray(states) ? states : [];
+  if (!items.length) return;
+  const hasAdded = items.some((item) => item.state.includes("added"));
+  const hasRemoved = items.some((item) => item.state.includes("removed"));
+  const hasMoved = items.some((item) => item.state.includes("moved"));
+  cell.classList.toggle("repair-added", hasAdded);
+  cell.classList.toggle("repair-removed", hasRemoved);
+  cell.classList.toggle("repair-moved", hasMoved);
+  const summary = items.map((item) => {
+    const parts = [item.label, item.subject];
+    if (item.className) parts.push(item.className);
+    if (item.detail) parts.push(item.detail);
+    if (item.sessionId) parts.push(item.sessionId);
+    return parts.filter(Boolean).join(" · ");
+  }).join("\n");
+  cell.title = summary;
+  const overlay = create("div", undefined, "repair-cell-overlay");
+  items.slice(0, 2).forEach((item) => {
+    overlay.append(create("span", `${item.label}: ${item.subject || "cours"}`, "repair-chip"));
+  });
+  cell.append(overlay);
+}
+
+function getDefaultRepairTarget(repairType) {
+  if (repairType === "repair_class") return scheduleState.selectedClass || scheduleState.classes[0] || "";
+  if (repairType === "repair_day") return (scheduleState.slots[0] || "").split("-", 1)[0] || "";
+  return scheduleState.selectedTeacher || scheduleState.teachers[0] || "";
+}
+
+function repairPayloadFromControls() {
+  const repairType = $("repair-type")?.value || "repair_teacher";
+  const target = ($("repair-target")?.value || getDefaultRepairTarget(repairType)).trim();
+  if (!target) throw new Error("Choisissez une cible de réparation.");
+  const payload = {
+    repair_type: repairType,
+    repair_policy: $("repair-policy")?.value || "balanced",
+    repair_target: target,
+    time_budget_seconds: 5,
+    commit: false,
+  };
+  if (repairType === "repair_day") payload.day = target;
+  return payload;
+}
+
+async function simulateRepairProposal() {
+  if (scheduleState.isRepairing) {
+    notify("Simulation de réparation déjà en cours.", "info");
+    return;
+  }
+  const btn = $("simulate-repair-btn");
+  setLoading(btn, true, "Simulation...");
+  scheduleState.isRepairing = true;
+  renderRepairStatus("Simulation de réparation en cours...", "loading");
+  try {
+    if (!scheduleState.hasGeneratedSchedule || !Object.keys(scheduleState.schedule || {}).length) {
+      throw new Error("Générez d'abord un planning avant de simuler une réparation.");
+    }
+    const payload = repairPayloadFromControls();
+    const proposal = await api("/schedule/repair", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    scheduleState.repairProposal = proposal;
+    scheduleState.repairPreview = null;
+    scheduleState.repairViewMode = "current";
+    updateRepairViewToggle();
+    focusRepairTargetInSchedule(payload);
+    renderRepairProposal(proposal);
+    renderScheduleTableFromState();
+    renderRepairStatus("Proposition de réparation créée.", "success");
+    notify("Proposition de réparation créée.");
+  } catch (error) {
+    renderRepairStatus(`Échec de simulation : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    scheduleState.isRepairing = false;
+    setLoading(btn, false);
+  }
+}
+
+function focusRepairTargetInSchedule(payload) {
+  const target = payload?.repair_target || "";
+  if (payload?.repair_type === "repair_class" && target) {
+    scheduleState.viewMode = "class";
+    scheduleState.selectedClass = target;
+  }
+  if (payload?.repair_type === "repair_teacher" && target) {
+    scheduleState.viewMode = "teacher";
+    scheduleState.selectedTeacher = target;
+  }
+  const modeSelect = $("schedule-view-mode");
+  const classSelect = $("schedule-class-filter");
+  const teacherSelect = $("schedule-teacher-filter");
+  if (modeSelect) modeSelect.value = scheduleState.viewMode;
+  if (classSelect && scheduleState.classes.includes(scheduleState.selectedClass)) classSelect.value = scheduleState.selectedClass;
+  if (teacherSelect && scheduleState.teachers.includes(scheduleState.selectedTeacher)) teacherSelect.value = scheduleState.selectedTeacher;
+  syncScheduleFiltersUI();
+}
+
+async function previewRepairProposal() {
+  const proposalId = scheduleState.repairProposal?.proposal_id;
+  if (!proposalId) {
+    renderRepairStatus("Aucune proposition à prévisualiser.", "error");
+    notify("Aucune proposition à prévisualiser.", "error");
+    return;
+  }
+  setRepairActionLoading(true);
+  try {
+    const preview = await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}`);
+    scheduleState.repairPreview = preview;
+    renderRepairProposal(scheduleState.repairProposal, preview);
+    renderScheduleTableFromState();
+    renderRepairStatus("Prévisualisation chargée. Le planning actif est inchangé.", "success");
+    notify("Prévisualisation chargée.");
+  } catch (error) {
+    renderRepairStatus(`Échec de prévisualisation : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setRepairActionLoading(false);
+  }
+}
+
+async function setRepairViewMode(mode) {
+  if (mode === "proposal") {
+    const proposalId = scheduleState.repairProposal?.proposal_id;
+    if (!proposalId) {
+      renderRepairStatus("Aucune proposition à afficher.", "error");
+      notify("Aucune proposition à afficher.", "error");
+      return;
+    }
+    if (!scheduleState.repairPreview?.proposed_schedule) {
+      await previewRepairProposal();
+    }
+    if (!scheduleState.repairPreview?.proposed_schedule) return;
+  }
+  scheduleState.repairViewMode = mode === "proposal" ? "proposal" : "current";
+  updateRepairViewToggle();
+  renderScheduleTableFromState();
+}
+
+function updateRepairViewToggle() {
+  const currentBtn = $("repair-view-current-btn");
+  const proposalBtn = $("repair-view-proposal-btn");
+  if (!currentBtn || !proposalBtn) return;
+  currentBtn.classList.toggle("active", scheduleState.repairViewMode === "current");
+  proposalBtn.classList.toggle("active", scheduleState.repairViewMode === "proposal");
+  proposalBtn.disabled = !scheduleState.repairProposal?.proposal_id;
+}
+
+async function acceptRepairProposal() {
+  const proposalId = scheduleState.repairProposal?.proposal_id;
+  if (!proposalId) {
+    renderRepairStatus("Aucune proposition à accepter.", "error");
+    notify("Aucune proposition à accepter.", "error");
+    return;
+  }
+  setRepairActionLoading(true);
+  try {
+    await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/accept`, { method: "POST" });
+    scheduleState.repairProposal = null;
+    scheduleState.repairPreview = null;
+    scheduleState.repairViewMode = "current";
+    updateRepairViewToggle();
+    await refreshScheduleTable();
+    renderRepairProposal(null);
+    renderScheduleTableFromState();
+    renderRepairStatus("Proposition acceptée. Le planning actif a été mis à jour.", "success");
+    notify("Réparation acceptée.");
+  } catch (error) {
+    renderRepairStatus(`Échec d'acceptation : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setRepairActionLoading(false);
+  }
+}
+
+async function rejectRepairProposal() {
+  const proposalId = scheduleState.repairProposal?.proposal_id;
+  if (!proposalId) {
+    renderRepairStatus("Aucune proposition à refuser.", "error");
+    notify("Aucune proposition à refuser.", "error");
+    return;
+  }
+  setRepairActionLoading(true);
+  try {
+    await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}`, { method: "DELETE" });
+    scheduleState.repairProposal = null;
+    scheduleState.repairPreview = null;
+    scheduleState.repairViewMode = "current";
+    updateRepairViewToggle();
+    renderRepairProposal(null);
+    renderScheduleTableFromState();
+    renderRepairStatus("Proposition refusée. Le planning actif est inchangé.", "success");
+    notify("Proposition refusée.");
+  } catch (error) {
+    renderRepairStatus(`Échec du refus : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setRepairActionLoading(false);
+  }
+}
+
+async function exportRepairProposalPdf() {
+  const proposalId = scheduleState.repairProposal?.proposal_id;
+  if (!proposalId) {
+    renderRepairStatus("Aucune proposition à exporter.", "error");
+    notify("Aucune proposition à exporter.", "error");
+    return;
+  }
+  try {
+    const response = await fetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || "Export PDF repair indisponible.");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `repair-report-${proposalId}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    notify("Export PDF Repair prêt.");
+  } catch (error) {
+    renderRepairStatus(`Échec export PDF Repair : ${error.message}`, "error");
+    notify(error.message, "error");
+  }
+}
+
+function renderRepairStatus(message, level = "info") {
+  const el = $("repair-status");
+  if (!el) return;
+  el.textContent = message;
+  el.dataset.level = level;
+}
+
+function setRepairActionLoading(isLoading) {
+  document.querySelectorAll("#repair-proposal button").forEach((button) => {
+    button.disabled = isLoading;
+  });
+}
+
+function renderRepairProposal(proposal, preview = null) {
+  const root = $("repair-proposal");
+  if (!root) return;
+  if (!proposal) {
+    root.replaceChildren(create("p", "Aucune proposition simulée.", "hint"));
+    return;
+  }
+  const details = preview || proposal;
+  const hasProposalId = Boolean(proposal.proposal_id);
+  const metrics = [
+    ["Proposal", proposal.proposal_id || "-"],
+    ["Type", details.repair_type || proposal.repair_type || "-"],
+    ["Policy", details.repair_policy || proposal.repair_policy || "-"],
+    ["Changements", String(details.changed_items_count ?? proposal.changed_items_count ?? 0)],
+    ["Stabilité", formatScore(details.stability_score ?? proposal.stability_score)],
+    ["Qualité", formatScore(details.quality_score ?? proposal.quality_score)],
+    ["Conflits hard", String(details.hard_conflicts ?? proposal.hard_conflicts ?? "-")],
+  ];
+  const summary = create("div", undefined, "repair-summary");
+  metrics.forEach(([label, value]) => {
+    const item = create("div", undefined, "repair-metric");
+    item.append(create("span", label), create("strong", value));
+    summary.append(item);
+  });
+
+  const actions = create("div", undefined, "repair-actions");
+  const previewBtn = create("button", "Prévisualiser");
+  const acceptBtn = create("button", "Accepter", "primary");
+  const rejectBtn = create("button", "Refuser", "danger");
+  const exportBtn = create("button", "Exporter PDF Repair");
+  previewBtn.disabled = !hasProposalId;
+  acceptBtn.disabled = !hasProposalId;
+  rejectBtn.disabled = !hasProposalId;
+  exportBtn.disabled = !hasProposalId;
+  previewBtn.addEventListener("click", previewRepairProposal);
+  acceptBtn.addEventListener("click", acceptRepairProposal);
+  rejectBtn.addEventListener("click", rejectRepairProposal);
+  exportBtn.addEventListener("click", exportRepairProposalPdf);
+  actions.append(previewBtn, exportBtn, acceptBtn, rejectBtn);
+
+  const title = create("h4", preview ? "Détails prévisualisés" : "Proposition simulée");
+  const viewHint = create(
+    "p",
+    scheduleState.repairViewMode === "proposal"
+      ? "Le tableau affiche la proposition réparée. Le planning actif reste inchangé tant que vous n'acceptez pas."
+      : "Le tableau affiche le planning actuel avec les changements proposés en surbrillance.",
+    "hint",
+  );
+  root.replaceChildren(title, viewHint, summary, renderChangedItems(details.changed_items || proposal.changed_items || []), actions);
+}
+
+function renderChangedItems(items) {
+  const section = create("div", undefined, "changed-items");
+  const list = Array.isArray(items) ? items : [];
+  section.append(create("h4", "Cours modifiés"));
+  if (!list.length) {
+    section.append(create("p", "Aucun changement détaillé retourné.", "hint"));
+    return section;
+  }
+  const entries = list.map((item) => {
+    const card = create("article", undefined, "changed-item");
+    const title = [
+      item?.class_name || item?.class_id || "Classe inconnue",
+      item?.subject_name || item?.subject_id || "Matière inconnue",
+    ].join(" · ");
+    const slotText = `${item?.old_slot || "-"} → ${item?.new_slot || "-"}`;
+    const teacherText = `${item?.old_teacher_name || item?.old_teacher_id || "-"} → ${item?.new_teacher_name || item?.new_teacher_id || "-"}`;
+    card.append(
+      create("strong", title),
+      create("span", `Créneau : ${slotText}`, "hint"),
+      create("span", `Professeur : ${teacherText}`, "hint"),
+      create("span", `Session : ${item?.session_id || "-"}`, "hint"),
+      create("span", `Type : ${item?.change_type || "-"}`, "hint"),
+    );
+    return card;
+  });
+  section.append(...entries);
+  return section;
+}
+
+function formatScore(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${numeric}/100` : "--";
+}
+
+async function refreshScheduleTable() {
+  const [classes, slots, schedule, teachers, scheduleOptions] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
+  scheduleState.classes = classes.map((c) => c.name);
+  scheduleState.slots = slots;
+  scheduleState.schedule = schedule || {};
+  scheduleState.teachers = teachers.map((t) => t.name);
+  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+  if (!scheduleState.hasGeneratedSchedule) {
+    scheduleState.repairProposal = null;
+    scheduleState.repairPreview = null;
+    scheduleState.repairViewMode = "current";
+    renderRepairProposal(null);
+    updateRepairViewToggle();
+  }
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
+  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
+  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
+  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  const selected = getSelectedScheduleOption();
+  if (selected) scheduleState.latestMetrics = { ...(scheduleState.latestMetrics || {}), ...selected };
+  renderScheduleOptions();
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected);
+  populateScheduleFilters();
+  renderScheduleTableFromState();
+}
+
+async function refresh() {
+  const [classes, subjects, teachers, slots, schedule, conditions, timeSettings, scheduleOptions, diagnosis] = await Promise.all([
+    api("/classes"),
+    api("/subjects"),
+    api("/teachers"),
+    api("/slots"),
+    api("/schedule"),
+    api("/conditions"),
+    api("/time-settings"),
+    api("/schedule/options").catch(() => []),
+    api("/schedule/diagnose").catch(() => null),
+  ]);
+
+  $("count-classes").textContent = classes.length;
+  $("count-subjects").textContent = subjects.length;
+  $("count-teachers").textContent = teachers.length;
+  $("count-slots").textContent = slots.length;
+  $("count-conditions").textContent = conditions.length;
+
+  fillList("classes-list", classes.map((x) => `${x.name} (max/jour: ${x.max_lessons_per_day})`));
+  fillList("subjects-list", subjects.map((x) => `${x.name} (${x.hours_per_week}h)`));
+  fillList("teachers-list", teachers.map((x) => `${x.name}: ${x.subjects.join(", ")} | max/jour: ${x.max_lessons_per_day} | indisponibilités: ${x.unavailable_slots.join(", ") || "-"}`));
+  fillList("slots-list", slots);
+
+  renderConditionsList(conditions);
+  renderConstraintDiagnosis(diagnosis);
+  renderDiagnostics(diagnosis);
+  fillTimeSettingsForm(timeSettings);
+  populateUnavailableSlots(slots);
+
+  scheduleState.slots = slots;
+  scheduleState.classes = classes.map((c) => c.name);
+  scheduleState.teachers = teachers.map((t) => t.name);
+  scheduleState.subjects = subjects.map((s) => s.name);
+  scheduleState.schedule = schedule || {};
+  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
+  if (!scheduleState.hasGeneratedSchedule) {
+    scheduleState.repairProposal = null;
+    scheduleState.repairPreview = null;
+    scheduleState.repairViewMode = "current";
+    renderRepairProposal(null);
+    updateRepairViewToggle();
+  }
+  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
+  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
+  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
+  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
+  const selected = getSelectedScheduleOption();
+  if (selected) scheduleState.latestMetrics = { ...(scheduleState.latestMetrics || {}), ...selected };
+  renderScheduleOptions();
+
+  populateScheduleFilters();
+  populateConditionOptions();
+  renderScheduleTableFromState();
+  renderQualityMetrics(selected || {});
+  renderScoreBreakdown(selected);
+  updateConditionFieldVisibility();
+}
+
+async function runAction(buttonId, path, loadingLabel) {
+  const btn = $(buttonId);
+  setLoading(btn, true, loadingLabel);
+  try {
+    const res = await api(path, { method: "POST" });
+    notify(res.message || "Opération terminée.", res.success === false ? "error" : "success");
+    await refresh();
+    if (path === "/schedule/clear") {
+      $("demo-summary").textContent = "Aucune démo volumineuse chargée.";
+      renderGenerationBanner("Données effacées. Vous pouvez recharger une démo ou saisir vos données.", "info");
+      scheduleState.hasGeneratedSchedule = false;
+      scheduleState.repairProposal = null;
+      scheduleState.repairPreview = null;
+      scheduleState.repairViewMode = "current";
+      renderRepairProposal(null);
+      updateRepairViewToggle();
+      renderRepairStatus("Aucune proposition de réparation.", "info");
+      renderScheduleTableFromState();
+    }
+  } catch (error) {
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function runLoadLargeDemo() {
+  const btn = $("load-large-demo-btn");
+  setLoading(btn, true, "Chargement en cours...");
+  const startedAt = performance.now();
+  try {
+    const res = await api("/schedule/load-large-demo", { method: "POST" });
+    await refresh();
+    const stats = res.stats || {};
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    $("demo-summary").textContent = `Grosse démo chargée : ${stats.classes || 0} classes, ${stats.teachers || 0} professeurs, ${stats.subjects || 0} matières, ${stats.slots || 0} créneaux (${elapsedMs} ms).`;
+    renderGenerationBanner("Démo volumineuse prête. Sélectionnez ensuite une vue classe/professeur après génération.", "success");
+    notify("Grosse démo chargée avec succès.");
+  } catch (error) {
+    renderGenerationBanner(`Erreur de chargement démo : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function runGenerateSchedule() {
+  if (scheduleState.isGenerating) {
+    notify("Génération déjà en cours.", "info");
+    return;
+  }
+  const buttons = [$("generate-btn"), $("generate-btn-secondary")];
+  setButtonsLoading(buttons, true, "Génération...");
+  scheduleState.isGenerating = true;
+  renderGenerationBanner("Génération en cours...", "loading");
+  try {
+    const res = await api("/schedule/generate", { method: "POST" });
+    if (res.success === false) throw new Error(res.message || "Échec de génération");
+    scheduleState.latestMetrics = res;
+    scheduleState.repairProposal = null;
+    scheduleState.repairPreview = null;
+    renderRepairProposal(null);
+    renderRepairStatus("Aucune proposition de réparation.", "info");
+    renderQualityMetrics(res);
+    await refreshScheduleTable();
+    scheduleState.hasGeneratedSchedule = true;
+    renderGenerationBanner(`Dernière génération réussie le ${new Date().toLocaleString("fr-FR")}.`, "success");
+    notify(res.message || "Emploi du temps généré avec succès");
+  } catch (error) {
+    await refreshScheduleTable().catch(() => {});
+    scheduleState.hasGeneratedSchedule = false;
+    renderQualityMetrics({});
+    renderScoreBreakdown(null);
+    renderGenerationBanner(`Échec de génération : ${error.message}`, "error");
+    notify(`Échec de génération : ${error.message}`, "error");
+  } finally {
+    scheduleState.isGenerating = false;
+    setButtonsLoading(buttons, false);
+  }
+}
+
+async function exportSchedule(format) {
+  const path = format === "pdf" ? "/schedule/export/pdf" : format === "json" ? "/schedule/export/json" : "/schedule/export/csv";
+  const response = await fetch(path);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || "Aucun planning à exporter.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = format === "pdf" ? "school-schedule.pdf" : format === "json" ? "school-schedule.json" : "school-schedule.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  notify(`Export ${format.toUpperCase()} prêt.`);
+}
+
+function bindForms() {
+  const bindSubmit = (formId, path, payloadBuilder) => $(formId).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector("button[type='submit']");
+    setLoading(btn, true, "Enregistrement...");
+    try {
+      await api(path, { method: "POST", body: JSON.stringify(payloadBuilder()) });
+      notify(form.dataset.successMessage || "Enregistré.");
+      resetFormWithDefaults(form);
+      await refresh();
+    } catch (error) {
+      notify(error.message, "error");
+    } finally {
+      setLoading(btn, false);
+    }
+  });
+
+  bindSubmit("class-form", "/classes", () => ({ name: $("class-name").value.trim(), max_lessons_per_day: Number($("class-max-lessons").value) }));
+  bindSubmit("subject-form", "/subjects", () => ({ name: $("subject-name").value.trim(), hours_per_week: Number($("subject-hours").value) }));
+  bindSubmit("teacher-form", "/teachers", () => ({ name: $("teacher-name").value.trim(), subjects: $("teacher-subjects").value.split(",").map((s) => s.trim()).filter(Boolean), unavailable_slots: getUnavailableSlots(), max_lessons_per_day: Number($("teacher-max-lessons").value) }));
+  bindSubmit("slot-form", "/slots", () => ({ slot: $("slot-value").value.trim() }));
+  bindSubmit("condition-form", "/conditions", () => {
+    const condition_type = $("condition-type").value;
+    const description = $("condition-text").value.trim();
+    const hardTypes = new Set(["teacher_unavailable", "class_unavailable"]);
+    const payload = { condition_type, text: description, description, hard: hardTypes.has(condition_type) };
+
+    if (condition_type === "teacher_unavailable") {
+      payload.teacher_name = $("condition-teacher-name").value.trim();
+      payload.slot = $("condition-slot").value;
+      requireKnownValue(payload.teacher_name, scheduleState.teachers, "un professeur existant");
+      requireKnownValue(payload.slot, scheduleState.slots, "un créneau existant");
+      payload.target_id = payload.teacher_name;
+      payload.slot_id = payload.slot;
+    }
+
+    if (condition_type === "class_unavailable") {
+      payload.class_name = $("condition-class-name").value.trim();
+      payload.slot = $("condition-slot").value;
+      requireKnownValue(payload.class_name, scheduleState.classes, "une classe existante");
+      requireKnownValue(payload.slot, scheduleState.slots, "un créneau existant");
+      payload.target_id = payload.class_name;
+      payload.slot_id = payload.slot;
+    }
+
+    if (condition_type === "subject_prefer_morning" || condition_type === "avoid_subject_repeat_same_day") {
+      payload.subject_name = $("condition-subject-name").value.trim();
+      requireKnownValue(payload.subject_name, scheduleState.subjects, "une matière existante");
+      payload.target_id = payload.subject_name;
+    }
+
+    if (condition_type === "teacher_prefer_morning") {
+      payload.teacher_name = $("condition-teacher-name").value.trim();
+      requireKnownValue(payload.teacher_name, scheduleState.teachers, "un professeur existant");
+      payload.target_id = payload.teacher_name;
+    }
+
+    if (condition_type === "avoid_subject_repeat_same_day") {
+      payload.class_name = $("condition-class-name").value.trim() || null;
+      if (payload.class_name) requireKnownValue(payload.class_name, scheduleState.classes, "une classe existante");
+    }
+    if (condition_type === "avoid_long_sequence") {
+      payload.class_name = $("condition-class-name").value.trim() || null;
+      payload.teacher_name = $("condition-teacher-name").value.trim() || null;
+      if (payload.class_name) requireKnownValue(payload.class_name, scheduleState.classes, "une classe existante");
+      if (payload.teacher_name) requireKnownValue(payload.teacher_name, scheduleState.teachers, "un professeur existant");
+    }
+    return payload;
+  });
+  bindSubmit("time-settings-form", "/time-settings", () => ({
+    day_start_time: $("day-start-time").value,
+    day_end_time: $("day-end-time").value,
+    lesson_duration_minutes: Number($("lesson-duration-minutes").value),
+    break_duration_minutes: Number($("break-duration-minutes").value),
+    working_days: $("working-days").value.split(",").map((d) => d.trim()).filter(Boolean),
+    lunch_break_start: $("lunch-break-start").value || null,
+    lunch_break_end: $("lunch-break-end").value || null,
+  }));
+
+  $("condition-type").addEventListener("change", updateConditionFieldVisibility);
+  ["condition-teacher-name", "condition-class-name", "condition-subject-name", "condition-slot"].forEach((id) => $(id).addEventListener("input", buildConditionText));
+  $("teacher-unavailable-slots").addEventListener("change", updateUnavailableSlotsSummary);
+  $("repair-type").addEventListener("change", () => {
+    const repairType = $("repair-type").value;
+    $("repair-target").value = getDefaultRepairTarget(repairType);
+  });
+  $("simulate-repair-btn").addEventListener("click", simulateRepairProposal);
+  $("repair-view-current-btn").addEventListener("click", () => setRepairViewMode("current"));
+  $("repair-view-proposal-btn").addEventListener("click", () => setRepairViewMode("proposal"));
+
+  $("generate-btn").addEventListener("click", runGenerateSchedule);
+  $("generate-btn-secondary").addEventListener("click", runGenerateSchedule);
+  $("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Chargement..."));
+  $("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
+  $("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Suppression..."));
+  $("export-json-btn").addEventListener("click", () => exportSchedule("json").catch((error) => notify(error.message, "error")));
+  $("export-csv-btn").addEventListener("click", () => exportSchedule("csv").catch((error) => notify(error.message, "error")));
+  $("export-pdf-btn").addEventListener("click", () => exportSchedule("pdf").catch((error) => notify(error.message, "error")));
+
+  $("schedule-view-mode").addEventListener("change", (e) => { scheduleState.viewMode = e.target.value; syncScheduleFiltersUI(); renderScheduleTableFromState(); });
+  $("schedule-class-filter").addEventListener("change", (e) => { scheduleState.selectedClass = e.target.value; renderScheduleTableFromState(); });
+  $("schedule-teacher-filter").addEventListener("change", (e) => { scheduleState.selectedTeacher = e.target.value; renderScheduleTableFromState(); });
+  $("schedule-search").addEventListener("input", (e) => { scheduleState.search = e.target.value.trim().toLowerCase(); renderScheduleTableFromState(); });
+}
+
+initializeNavigation();
+bindForms();
+renderRepairProposal(null);
+updateRepairViewToggle();
+refreshBackendStatus();
+refresh().catch((error) => {
+  renderGenerationBanner(`Erreur au chargement initial : ${error.message}`, "error");
+  notify(error.message, "error");
+});
