@@ -31,9 +31,11 @@ def stats(store: MemoryStore = Depends(get_store)) -> dict:
         "classes": len(store.classes),
         "teachers": len(store.teachers),
         "subjects": len(store.subjects),
+        "learning_groups": len(getattr(store, "learning_groups", [])),
         "slots": len(store.slots),
         "constraints": len(store.conditions),
         "has_schedule": bool(store.schedule),
+        "schedule_versions": len(getattr(store, "schedule_versions", [])),
     }
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from backend.models.schemas import Class, Condition, Subject, Teacher
+from backend.models.schemas import Class, Condition, LearningGroup, Subject, Teacher
 from backend.services.solver.models import ScheduleInput
 
 
@@ -52,7 +52,7 @@ class FeasibilityReport:
 def check_feasibility(input_data: ScheduleInput) -> FeasibilityReport:
     issues: list[FeasibilityIssue] = []
     warnings: list[FeasibilityIssue] = []
-    required_sessions = _required_sessions(input_data.classes, input_data.subjects)
+    required_sessions = _required_sessions(input_data.classes, input_data.subjects, input_data.learning_groups)
 
     if not input_data.classes:
         issues.append(FeasibilityIssue("missing_classes", "Cannot solve: no classes were provided."))
@@ -82,11 +82,12 @@ def check_feasibility(input_data: ScheduleInput) -> FeasibilityReport:
                 )
             )
 
-    weekly_hours = sum(subject_hours.values())
+    weekly_hours_by_class = _weekly_hours_by_class(input_data.classes, input_data.subjects, input_data.learning_groups)
     class_capacity = 0
     for class_obj in input_data.classes:
         capacity = _class_capacity(class_obj, input_data.slots, slot_day, class_unavailable[class_obj.id])
         class_capacity += capacity
+        weekly_hours = weekly_hours_by_class[class_obj.id]
         if weekly_hours > capacity:
             issues.append(
                 FeasibilityIssue(
@@ -109,11 +110,11 @@ def check_feasibility(input_data: ScheduleInput) -> FeasibilityReport:
                 )
             )
 
-    if required_sessions > len(input_data.classes) * len(input_data.slots):
+    if required_sessions > _target_slot_capacity(input_data.classes, input_data.slots, input_data.learning_groups):
         issues.append(
             FeasibilityIssue(
                 "global_class_slots_insufficient",
-                f"Need {required_sessions} session(s), but classes provide only {len(input_data.classes) * len(input_data.slots)} slot positions.",
+                f"Need {required_sessions} session(s), but targets provide only {_target_slot_capacity(input_data.classes, input_data.slots, input_data.learning_groups)} slot positions.",
             )
         )
     if required_sessions > teacher_capacity:
@@ -125,7 +126,7 @@ def check_feasibility(input_data: ScheduleInput) -> FeasibilityReport:
         )
 
     for subject in input_data.subjects:
-        subject_need = len(input_data.classes) * max(0, subject.hours_per_week)
+        subject_need = _required_for_subject(input_data.classes, subject, input_data.learning_groups)
         subject_capacity = sum(
             _teacher_capacity(teacher, input_data.slots, slot_day, teacher_unavailable[teacher.id])
             for teacher in teachers_by_subject.get(subject.name, [])
@@ -184,8 +185,32 @@ def check_feasibility(input_data: ScheduleInput) -> FeasibilityReport:
     )
 
 
-def _required_sessions(classes: list[Class], subjects: list[Subject]) -> int:
-    return len(classes) * sum(max(0, subject.hours_per_week) for subject in subjects)
+def _required_sessions(classes: list[Class], subjects: list[Subject], learning_groups: list[LearningGroup]) -> int:
+    return sum(_required_for_subject(classes, subject, learning_groups) for subject in subjects)
+
+
+def _required_for_subject(classes: list[Class], subject: Subject, learning_groups: list[LearningGroup]) -> int:
+    grouped_class_ids = {group.class_id for group in learning_groups if group.subject_name == subject.name}
+    whole_class_count = sum(1 for class_obj in classes if class_obj.id not in grouped_class_ids)
+    group_count = sum(1 for group in learning_groups if group.subject_name == subject.name)
+    return (whole_class_count + group_count) * max(0, subject.hours_per_week)
+
+
+def _weekly_hours_by_class(classes: list[Class], subjects: list[Subject], learning_groups: list[LearningGroup]) -> dict[int, int]:
+    subject_hours = {subject.name: max(0, subject.hours_per_week) for subject in subjects}
+    grouped_by_class_subject = {(group.class_id, group.subject_name) for group in learning_groups}
+    result: dict[int, int] = {}
+    for class_obj in classes:
+        total = 0
+        for subject in subjects:
+            groups = [group for group in learning_groups if group.class_id == class_obj.id and group.subject_name == subject.name]
+            total += len(groups or [None]) * subject_hours[subject.name] if (class_obj.id, subject.name) in grouped_by_class_subject else subject_hours[subject.name]
+        result[class_obj.id] = total
+    return result
+
+
+def _target_slot_capacity(classes: list[Class], slots: list[str], learning_groups: list[LearningGroup]) -> int:
+    return (len(classes) + len(learning_groups)) * len(slots)
 
 
 def _teachers_by_subject(teachers: list[Teacher]) -> dict[str, list[Teacher]]:

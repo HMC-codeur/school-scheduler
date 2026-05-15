@@ -7,7 +7,7 @@ from typing import Any
 
 from backend.data.db import get_database_path
 from backend.data.memory_store import MemoryStore
-from backend.models.schemas import Class, Condition, ConditionCreate, ScheduleCell, Subject, Teacher, TimeSettings
+from backend.models.schemas import Class, Condition, ConditionCreate, LearningGroup, LearningGroupCreate, ScheduleCell, Subject, Teacher, TimeSettings
 
 
 DEFAULT_SCHOOL_NAME = "Local MVP School"
@@ -17,6 +17,7 @@ class SQLiteRepository(MemoryStore):
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path) if db_path else get_database_path()
         self.repair_proposals: dict[str, dict] = {}
+        self.schedule_versions: list[dict] = []
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
         self._ensure_default_school()
@@ -64,6 +65,17 @@ class SQLiteRepository(MemoryStore):
                     name TEXT NOT NULL,
                     hours_per_week INTEGER NOT NULL,
                     UNIQUE(school_id, name)
+                );
+
+                CREATE TABLE IF NOT EXISTS learning_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    school_id INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+                    class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+                    class_name TEXT NOT NULL,
+                    subject_name TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    UNIQUE(school_id, display_name)
                 );
 
                 CREATE TABLE IF NOT EXISTS slots (
@@ -124,6 +136,7 @@ class SQLiteRepository(MemoryStore):
                 "conditions",
                 "slots",
                 "teachers",
+                "learning_groups",
                 "subjects",
                 "classes",
             ):
@@ -133,6 +146,7 @@ class SQLiteRepository(MemoryStore):
                 (self.school_id,),
             )
         self.repair_proposals = {}
+        self.schedule_versions = []
 
     @property
     def classes(self) -> list[Class]:
@@ -172,6 +186,28 @@ class SQLiteRepository(MemoryStore):
                 (self.school_id,),
             ).fetchall()
         return [Subject(name=row["name"], hours_per_week=row["hours_per_week"]) for row in rows]
+
+    @property
+    def learning_groups(self) -> list[LearningGroup]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, class_id, class_name, subject_name, level, display_name
+                FROM learning_groups WHERE school_id = ? ORDER BY id
+                """,
+                (self.school_id,),
+            ).fetchall()
+        return [
+            LearningGroup(
+                id=row["id"],
+                class_id=row["class_id"],
+                class_name=row["class_name"],
+                subject_name=row["subject_name"],
+                level=row["level"],
+                display_name=row["display_name"],
+            )
+            for row in rows
+        ]
 
     @property
     def slots(self) -> list[str]:
@@ -369,6 +405,41 @@ class SQLiteRepository(MemoryStore):
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"Subject '{name}' already exists") from exc
         return Subject(name=name, hours_per_week=hours_per_week)
+
+    def add_learning_group(self, payload: LearningGroupCreate) -> LearningGroup:
+        class_obj = self._resolve_learning_group_class(payload)
+        subject = next((item for item in self.subjects if item.name == payload.subject_name), None)
+        if subject is None:
+            raise ValueError(f"Subject '{payload.subject_name}' does not exist")
+        display_name = payload.display_name or f"{class_obj.name} / {subject.name} / {payload.level}"
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO learning_groups (school_id, class_id, class_name, subject_name, level, display_name)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (self.school_id, class_obj.id, class_obj.name, subject.name, payload.level, display_name),
+                )
+                group_id = cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Learning group '{display_name}' already exists") from exc
+        return LearningGroup(
+            id=int(group_id),
+            class_id=class_obj.id,
+            class_name=class_obj.name,
+            subject_name=subject.name,
+            level=payload.level,
+            display_name=display_name,
+        )
+
+    def delete_learning_group(self, group_id: int) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM learning_groups WHERE school_id = ? AND id = ?",
+                (self.school_id, group_id),
+            )
+        return cursor.rowcount > 0
 
     def add_slot(self, slot: str) -> str:
         try:

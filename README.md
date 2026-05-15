@@ -52,9 +52,13 @@ python -m compileall backend
 - `GET /subjects`, `POST /subjects`
 - `GET /slots`, `POST /slots`
 - `GET /conditions`, `POST /conditions`, `DELETE /conditions/{id}`
+- `GET /learning-groups`, `POST /learning-groups`, `DELETE /learning-groups/{id}`
 - `GET /time-settings`, `POST /time-settings`
 - `POST /schedule/load-demo`
+- `POST /schedule/load-learning-groups-demo`
+- `POST /schedule/load-pilot-demo`
 - `POST /schedule/load-large-demo`
+- `POST /schedule/import/excel/preview`
 - `POST /schedule/generate`
 - `POST /schedule/clear`
 - `GET /schedule`
@@ -66,10 +70,12 @@ python -m compileall backend
 - Saisie manuelle des classes, matières, professeurs et créneaux.
 - Persistance locale SQLite pour conserver les données entre redémarrages.
 - Génération de créneaux à partir des horaires.
-- Chargement de jeux de données démo (petit et volumineux).
+- Chargement de jeux de données démo (petit, pilote école réelle et volumineux).
 - Génération d'emploi du temps avec métriques de qualité.
 - Diagnostic de génération via `GET /schedule/diagnose`.
 - Export du planning sélectionné en CSV et PDF.
+- Preview d'import Excel `.xlsx` sans modification des données actives.
+- Groupes pédagogiques légers pour cibler une classe entière ou un groupe matière/niveau.
 - Filtres d'affichage classe/professeur et recherche.
 - Dashboard responsive et messages utilisateurs (succès/erreur/chargement).
 
@@ -81,12 +87,18 @@ Après génération, le planning sélectionné est exportable :
 
 Si aucun planning n'a encore été généré, ces endpoints retournent `404`.
 
+## Import Excel preview
+`POST /schedule/import/excel/preview` accepte un fichier `.xlsx` et retourne une preview JSON sans modifier la base active.
+
+Le parser V1 détecte les jours depuis la ligne d'en-tête, les créneaux depuis la colonne gauche, puis extrait les leçons des cellules non vides. Les formats hébreux `מורה:` pour le professeur et `חדר:` pour la salle sont reconnus.
+
 ## Local benchmark
 Le scheduler peut être benchmarké localement sans démarrer l'API :
 
 ### Windows PowerShell
 ```powershell
 .\.venv\Scripts\python.exe -m backend.benchmarks.scheduler_benchmark --dataset small
+.\.venv\Scripts\python.exe -m backend.benchmarks.scheduler_benchmark --dataset pilot_school
 .\.venv\Scripts\python.exe -m backend.benchmarks.scheduler_benchmark --dataset medium
 .\.venv\Scripts\python.exe -m backend.benchmarks.scheduler_benchmark --all
 ```
@@ -94,6 +106,7 @@ Le scheduler peut être benchmarké localement sans démarrer l'API :
 ### macOS / Linux
 ```bash
 python -m backend.benchmarks.scheduler_benchmark --dataset small
+python -m backend.benchmarks.scheduler_benchmark --dataset pilot_school
 python -m backend.benchmarks.scheduler_benchmark --dataset medium
 python -m backend.benchmarks.scheduler_benchmark --all
 ```
@@ -108,6 +121,7 @@ Le rapport inclut les temps de génération/options/scoring, les sessions placé
 
 Datasets disponibles :
 - `small`: 10 classes, 20 professeurs, 10 matières.
+- `pilot_school`: 12 classes, 22 professeurs, 10 matières, contraintes réalistes et professeurs partiels.
 - `medium`: 50 classes, 90 professeurs, 20 matières.
 - `large`: 100 classes, 200 professeurs, 40 matières.
 - `xlarge`: 250 classes, 500 professeurs, 60 matières.

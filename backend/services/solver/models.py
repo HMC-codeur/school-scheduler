@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from backend.models.schemas import Class, Condition, ScheduleCell, Subject, Teacher
+from backend.models.schemas import Class, Condition, LearningGroup, ScheduleCell, Subject, Teacher
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,7 @@ class ScheduleInput:
     subjects: list[Subject]
     slots: list[str]
     conditions: list[Condition] = field(default_factory=list)
+    learning_groups: list[LearningGroup] = field(default_factory=list)
     previous_schedule: dict[str, dict[str, ScheduleCell]] | None = None
     pinned_assignments: list["SolverAssignment"] = field(default_factory=list)
     repair_mode: str | None = None

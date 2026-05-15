@@ -24,7 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DEFAULT_OUTPUT = RESULTS_DIR / "scheduler_benchmark_latest.json"
-DATASET_ORDER = ["small", "medium", "realistic_school", "hard_school", "large", "xlarge"]
+DATASET_ORDER = ["small", "pilot_school", "medium", "realistic_school", "hard_school", "large", "xlarge"]
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,7 @@ class DatasetConfig:
 
 DATASETS = {
     "small": DatasetConfig("small", classes_count=10, teachers_count=20, subjects_count=10, slots_count=25),
+    "pilot_school": DatasetConfig("pilot_school", classes_count=12, teachers_count=22, subjects_count=10, slots_count=30),
     "medium": DatasetConfig("medium", classes_count=50, teachers_count=90, subjects_count=20, slots_count=30),
     "realistic_school": DatasetConfig("realistic_school", classes_count=18, teachers_count=36, subjects_count=12, slots_count=35),
     "hard_school": DatasetConfig("hard_school", classes_count=24, teachers_count=42, subjects_count=14, slots_count=30),
@@ -50,6 +51,7 @@ DATASETS = {
 
 DEFAULT_THRESHOLDS_MS = {
     "small": 60_000,
+    "pilot_school": 120_000,
     "medium": 300_000,
     "large": 900_000,
     "xlarge": 1_800_000,
@@ -57,6 +59,8 @@ DEFAULT_THRESHOLDS_MS = {
 
 
 def build_dataset(config: DatasetConfig) -> dict[str, list]:
+    if config.name == "pilot_school":
+        return build_pilot_school_dataset()
     if config.name == "realistic_school":
         return build_realistic_school_dataset()
     if config.name == "hard_school":
@@ -92,6 +96,78 @@ def build_dataset(config: DatasetConfig) -> dict[str, list]:
         )
 
     return {"classes": classes, "teachers": teachers, "subjects": subjects, "slots": slots, "conditions": []}
+
+
+def build_pilot_school_dataset() -> dict[str, list]:
+    subjects = [
+        Subject(name="Mathématiques", hours_per_week=3),
+        Subject(name="Français", hours_per_week=3),
+        Subject(name="Anglais", hours_per_week=2),
+        Subject(name="Sciences", hours_per_week=2),
+        Subject(name="Histoire", hours_per_week=2),
+        Subject(name="Géographie", hours_per_week=1),
+        Subject(name="Vie civique", hours_per_week=1),
+        Subject(name="EPS", hours_per_week=2),
+        Subject(name="Informatique", hours_per_week=1),
+        Subject(name="Arts", hours_per_week=1),
+    ]
+    class_names = [f"{level}{group}" for level in ["6e", "5e", "4e", "3e"] for group in ["A", "B", "C"]]
+    classes = [
+        Class(id=index, name=name, max_lessons_per_day=6)
+        for index, name in enumerate(class_names, start=1)
+    ]
+    slots = [
+        f"{day}-{hour}"
+        for day in ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        for hour in ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00"]
+    ]
+    teacher_specs = [
+        ("Mme Laurent", ["Mathématiques"], ["Wed-13:00", "Fri-14:00"], 5),
+        ("M. Benhamou", ["Mathématiques", "Informatique"], ["Mon-08:00", "Thu-14:00"], 5),
+        ("Mme Cohen", ["Mathématiques"], ["Tue-13:00", "Fri-08:00"], 4),
+        ("M. Haddad", ["Mathématiques", "Sciences"], ["Wed-08:00", "Thu-13:00"], 4),
+        ("Mme Durand", ["Français"], ["Mon-14:00", "Thu-08:00"], 5),
+        ("M. Petit", ["Français", "Histoire"], ["Tue-14:00", "Fri-13:00"], 5),
+        ("Mme Amar", ["Français"], ["Wed-13:00", "Fri-14:00"], 4),
+        ("Mme Levy", ["Anglais"], ["Mon-08:00", "Wed-14:00"], 4),
+        ("M. Rosen", ["Anglais"], ["Tue-08:00", "Thu-13:00", "Fri-14:00"], 3),
+        ("Mme Martin", ["Anglais", "Vie civique"], ["Mon-13:00", "Wed-08:00"], 4),
+        ("M. Garcia", ["Sciences"], ["Tue-13:00", "Fri-08:00"], 5),
+        ("Mme Nguyen", ["Sciences", "Informatique"], ["Mon-14:00", "Thu-08:00"], 4),
+        ("M. Morel", ["Sciences"], ["Wed-14:00", "Fri-13:00"], 3),
+        ("Mme Barak", ["Histoire", "Géographie"], ["Mon-08:00", "Thu-14:00"], 5),
+        ("M. Elbaz", ["Histoire", "Vie civique"], ["Tue-14:00", "Wed-13:00"], 4),
+        ("Mme Simon", ["Géographie", "Histoire"], ["Wed-08:00", "Fri-14:00"], 3),
+        ("M. Dahan", ["EPS"], ["Mon-13:00", "Tue-13:00"], 5),
+        ("Mme Fitoussi", ["EPS"], ["Thu-08:00", "Fri-08:00"], 4),
+        ("M. Vidal", ["Informatique", "Mathématiques"], ["Tue-08:00", "Fri-13:00"], 3),
+        ("Mme Tessier", ["Arts"], ["Mon-08:00", "Wed-08:00", "Fri-08:00"], 3),
+        ("M. Peretz", ["Arts", "Vie civique"], ["Tue-13:00", "Thu-13:00"], 3),
+        ("Mme Saada", ["Vie civique", "Français"], ["Mon-14:00", "Wed-14:00"], 3),
+    ]
+    teachers = [
+        Teacher(
+            id=index,
+            name=name,
+            subjects=teacher_subjects,
+            unavailable_slots=unavailable,
+            max_lessons_per_day=max_daily,
+        )
+        for index, (name, teacher_subjects, unavailable, max_daily) in enumerate(teacher_specs, start=1)
+    ]
+    conditions = [
+        Condition(id=1, text="Mathématiques le matin si possible", condition_type="subject_morning_preference", subject_name="Mathématiques"),
+        Condition(id=2, text="Français le matin si possible", condition_type="subject_morning_preference", subject_name="Français"),
+        Condition(id=3, text="Sciences le matin si possible", condition_type="subject_morning_preference", subject_name="Sciences"),
+        Condition(id=4, text="Mme Cohen temps partiel mercredi après-midi", condition_type="teacher_unavailable", teacher_name="Mme Cohen", slot="Wed-14:00"),
+        Condition(id=5, text="M. Rosen temps partiel vendredi après-midi", condition_type="teacher_unavailable", teacher_name="M. Rosen", slot="Fri-13:00"),
+        Condition(id=6, text="6eA réunion pédagogique lundi 08h", condition_type="class_unavailable", class_name="6eA", slot="Mon-08:00"),
+        Condition(id=7, text="5eB sortie sportive jeudi 14h", condition_type="class_unavailable", class_name="5eB", slot="Thu-14:00"),
+        Condition(id=8, text="4eC atelier externe mardi 13h", condition_type="class_unavailable", class_name="4eC", slot="Tue-13:00"),
+        Condition(id=9, text="Éviter longues séries pour les 3e", condition_type="avoid_long_sequence", class_name="3eA"),
+        Condition(id=10, text="Éviter répétition de Mathématiques en 6eA", condition_type="avoid_subject_repeat", class_name="6eA", subject_name="Mathématiques"),
+    ]
+    return {"classes": classes, "teachers": teachers, "subjects": subjects, "slots": slots, "conditions": conditions}
 
 
 def build_realistic_school_dataset() -> dict[str, list]:
@@ -700,6 +776,7 @@ def parse_args() -> argparse.Namespace:
         help="Time budget for the experimental V2 Phase B optimizer when --compare-v2 is enabled.",
     )
     parser.add_argument("--small-threshold-ms", type=int, help="Override small total-time threshold.")
+    parser.add_argument("--pilot-school-threshold-ms", type=int, help="Override pilot_school total-time threshold.")
     parser.add_argument("--medium-threshold-ms", type=int, help="Override medium total-time threshold.")
     parser.add_argument("--large-threshold-ms", type=int, help="Override large total-time threshold.")
     parser.add_argument("--xlarge-threshold-ms", type=int, help="Override xlarge total-time threshold.")
@@ -713,6 +790,7 @@ def main() -> None:
         name: value
         for name, value in {
             "small": args.small_threshold_ms,
+            "pilot_school": args.pilot_school_threshold_ms,
             "medium": args.medium_threshold_ms,
             "large": args.large_threshold_ms,
             "xlarge": args.xlarge_threshold_ms,

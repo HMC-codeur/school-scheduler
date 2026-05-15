@@ -7,6 +7,7 @@ from pathlib import Path
 
 from backend.api.classes import router as classes_router
 from backend.api.conditions import router as conditions_router
+from backend.api.learning_groups import router as learning_groups_router
 from backend.api.schedule import router as schedule_router
 from backend.api.slots import router as slots_router
 from backend.api.subjects import router as subjects_router
@@ -39,6 +40,7 @@ async def pydantic_validation_error_handler(_: Request, exc: ValidationError) ->
 
 app.include_router(classes_router)
 app.include_router(conditions_router)
+app.include_router(learning_groups_router)
 app.include_router(teachers_router)
 app.include_router(subjects_router)
 app.include_router(slots_router)

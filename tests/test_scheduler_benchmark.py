@@ -56,3 +56,23 @@ def test_small_scheduler_benchmark_creates_report(tmp_path) -> None:
     assert result["diagnostics_time_ms"] is not None
     assert "comparison" in report
     assert "analysis" in report
+
+
+def test_pilot_scheduler_benchmark_exports_official_metrics(tmp_path) -> None:
+    output = tmp_path / "pilot_scheduler_benchmark.json"
+
+    report = run_benchmarks(["pilot_school"], output_path=output)
+
+    assert output.exists()
+    result = report["results"][0]
+    assert result["dataset"] == "pilot_school"
+    assert result["success"] is True
+    assert result["required_sessions"] > 0
+    assert result["scheduled_sessions"] == result["required_sessions"]
+    assert result["options_generated"] >= 1
+    assert result["average_score"] is not None
+    assert result["score_max"] is not None
+    assert result["conflicts_count"] == 0
+    assert result["generation_time_ms"] >= 0
+    assert result["total_time_ms"] < result["threshold_ms"]
+    assert result["diagnostic_can_generate"] is True

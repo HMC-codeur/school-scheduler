@@ -36,6 +36,10 @@
           </div>
           <section class="actions top-actions">
             <button id="load-demo-btn" type="button">Charger démo</button>
+            <div class="demo-action">
+              <button id="load-pilot-demo-btn" type="button">Charger démo pilote</button>
+              <span class="demo-label">12 classes, 22 professeurs, contraintes réalistes</span>
+            </div>
             <button id="load-large-demo-btn" type="button">Grosse démo</button>
             <button id="generate-btn" class="primary" type="button">Générer</button>
             <button id="clear-btn" class="danger" type="button">Vider</button>
@@ -247,6 +251,17 @@
           </section>
 
           <section class="panel">
+            <div class="section-heading">
+              <div>
+                <h3>Historique planning</h3>
+                <p class="hint">Versions récentes du planning actif, avec restauration simple quand disponible.</p>
+              </div>
+              <button id="refresh-versions-btn" type="button">Rafraîchir</button>
+            </div>
+            <div id="schedule-versions" class="schedule-versions"></div>
+          </section>
+
+          <section class="panel">
             <div class="schedule-controls" aria-label="Filtres d'affichage du planning">
               <label for="schedule-view-mode">Mode d'affichage<select id="schedule-view-mode">
                 <option value="class">Vue classe</option>
@@ -295,6 +310,10 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
+    <script src="/state.js?v=saas-v1"></script>
+    <script src="/api.js?v=saas-v1"></script>
+    <script src="/render.js?v=saas-v1"></script>
+    <script src="/repair-ui.js?v=saas-v1"></script>
     <script src="/app.js?v=saas-v1"></script>
   </body>
 </html>

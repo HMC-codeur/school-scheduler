@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from backend.models.schemas import Class, Condition, Subject, Teacher, TimeSettings
+from backend.models.schemas import Class, Condition, LearningGroup, Subject, Teacher, TimeSettings
 from backend.services.scheduler import SchedulerService
 
 
@@ -11,8 +11,10 @@ def diagnose_schedule_generation(
     slots: list[str],
     conditions: list[Condition] | None = None,
     time_settings: TimeSettings | None = None,
+    learning_groups: list[LearningGroup] | None = None,
 ) -> dict:
     conditions = conditions or []
+    learning_groups = learning_groups or []
     blocking_issues: list[str] = []
     warnings: list[str] = []
 
@@ -22,7 +24,8 @@ def diagnose_schedule_generation(
         "subjects": len(subjects),
         "slots": len(slots),
         "conditions": len(conditions),
-        "required_sessions": len(classes) * sum(subject.hours_per_week for subject in subjects),
+        "learning_groups": len(learning_groups),
+        "required_sessions": _required_sessions(classes, subjects, learning_groups),
         "available_class_sessions": len(classes) * len(slots),
     }
 
@@ -58,6 +61,16 @@ def diagnose_schedule_generation(
         compatible = teachers_by_subject.get(subject.name, [])
         if not compatible:
             blocking_issues.append(f"Aucun professeur compatible pour la matière '{subject.name}'.")
+
+    class_by_id = {class_obj.id: class_obj for class_obj in classes}
+    subject_hours = {subject.name: max(0, subject.hours_per_week) for subject in subjects}
+    for group in learning_groups:
+        if group.class_id not in class_by_id:
+            blocking_issues.append(f"Groupe '{group.display_name}' rattaché à une classe inconnue.")
+        if group.subject_name not in subject_names:
+            blocking_issues.append(f"Groupe '{group.display_name}' référence une matière inconnue: '{group.subject_name}'.")
+        if not teachers_by_subject.get(group.subject_name):
+            blocking_issues.append(f"Groupe '{group.display_name}' sans professeur compatible pour '{group.subject_name}'.")
 
     required_per_class = sum(subject.hours_per_week for subject in subjects)
     if stats["required_sessions"] > stats["available_class_sessions"]:
@@ -96,12 +109,20 @@ def diagnose_schedule_generation(
                 f"Contrainte impossible pour la classe '{class_obj.name}': {required_per_class} cours requis, {len(available_slots)} créneaux disponibles."
             )
 
+    for group in learning_groups:
+        available_slots = [slot for slot in slots if slot not in class_blocked_slots[group.class_name]]
+        required = subject_hours.get(group.subject_name, 0)
+        if len(available_slots) < required:
+            blocking_issues.append(
+                f"Groupe '{group.display_name}' sans créneau possible: {required} cours requis, {len(available_slots)} créneaux disponibles."
+            )
+
     for subject in subjects:
         available_teacher_slots = 0
         for teacher in teachers_by_subject.get(subject.name, []):
             available_slots = [slot for slot in slots if slot not in teacher_blocked_slots.get(teacher.name, set())]
             available_teacher_slots += min(len(available_slots), len(days) * max(1, teacher.max_lessons_per_day))
-        required_for_subject = len(classes) * subject.hours_per_week
+        required_for_subject = _required_for_subject(classes, subject, learning_groups)
         if available_teacher_slots < required_for_subject:
             blocking_issues.append(
                 f"Capacité prof insuffisante pour '{subject.name}': {required_for_subject} cours requis, {available_teacher_slots} places prof compatibles."
@@ -125,3 +146,14 @@ def diagnose_schedule_generation(
         "warnings": list(dict.fromkeys(warnings)),
         "stats": stats,
     }
+
+
+def _required_sessions(classes: list[Class], subjects: list[Subject], learning_groups: list[LearningGroup]) -> int:
+    return sum(_required_for_subject(classes, subject, learning_groups) for subject in subjects)
+
+
+def _required_for_subject(classes: list[Class], subject: Subject, learning_groups: list[LearningGroup]) -> int:
+    grouped_class_ids = {group.class_id for group in learning_groups if group.subject_name == subject.name}
+    whole_class_count = sum(1 for class_obj in classes if class_obj.id not in grouped_class_ids)
+    group_count = sum(1 for group in learning_groups if group.subject_name == subject.name)
+    return (whole_class_count + group_count) * max(0, subject.hours_per_week)

@@ -1,8 +1,12 @@
 from datetime import datetime, timezone
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+from email import policy
+from email.parser import BytesParser
+
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
 from fastapi.responses import Response
 
@@ -28,6 +32,7 @@ from backend.services.solver.ortools_solver import ORToolsSolver
 from backend.services.solver.repair import repair_schedule
 from backend.services.solver.models import SolverAssignment
 from backend.services.solver.stability import schedule_with_session_ids
+from backend.services.excel_import import preview_excel_schedule
 from backend.api.platform import build_repair_report_pdf
 
 
@@ -142,6 +147,104 @@ def _repair_proposals(store: MemoryStore) -> dict[str, dict]:
     return proposals
 
 
+def _serializable_schedule(schedule: dict) -> dict:
+    serializable: dict[str, dict[str, dict[str, str | None]]] = {}
+    for slot, entries in schedule_with_session_ids(schedule or {}).items():
+        serializable[slot] = {
+            class_name: cell.model_dump()
+            for class_name, cell in entries.items()
+        }
+    return serializable
+
+
+def _schedule_versions(store: MemoryStore) -> list[dict]:
+    versions = getattr(store, "schedule_versions", None)
+    if versions is None:
+        versions = []
+        setattr(store, "schedule_versions", versions)
+    return versions
+
+
+def _record_schedule_version(
+    store: MemoryStore,
+    *,
+    source: str,
+    schedule: dict,
+    option_id: str | None = None,
+    proposal_id: str | None = None,
+    previous_schedule: dict | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict:
+    versions = _schedule_versions(store)
+    version = {
+        "version_id": f"schedule-version-{uuid4().hex[:12]}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "option_id": option_id,
+        "proposal_id": proposal_id,
+        "schedule": _serializable_schedule(schedule),
+        "rollback": {
+            "available": previous_schedule is not None,
+            "previous_schedule": _serializable_schedule(previous_schedule or {}) if previous_schedule is not None else {},
+        },
+        "metadata": metadata or {},
+    }
+    versions.append(version)
+    del versions[:-20]
+    return version
+
+
+def _schedule_size(schedule: dict) -> int:
+    return sum(len(entries or {}) for entries in (schedule or {}).values())
+
+
+def _schedule_version_summary(version: dict) -> dict:
+    previous_schedule = (version.get("rollback") or {}).get("previous_schedule") or {}
+    return {
+        "id": version.get("version_id"),
+        "reason": version.get("source"),
+        "type": version.get("source"),
+        "created_at": version.get("created_at"),
+        "has_previous_schedule": bool((version.get("rollback") or {}).get("available")),
+        "active_schedule_size": _schedule_size(version.get("schedule") or {}),
+        "previous_schedule_size": _schedule_size(previous_schedule) if previous_schedule else 0,
+        "option_id": version.get("option_id"),
+        "proposal_id": version.get("proposal_id"),
+        "metadata": version.get("metadata") or {},
+    }
+
+
+def _set_active_schedule_from_version(
+    store: MemoryStore,
+    schedule: dict,
+    *,
+    option_id: str,
+    message: str,
+) -> None:
+    store.schedule = schedule_with_session_ids(schedule)
+    if not store.schedule:
+        store.schedule_options = []
+        store.selected_schedule_option_id = None
+        return
+
+    option = build_schedule_option(
+        option_id=option_id,
+        schedule=store.schedule,
+        classes=store.classes,
+        teachers=store.teachers,
+        subjects=store.subjects,
+        slots=store.slots,
+        constraints=store.conditions,
+    )
+    option["id"] = option_id
+    option["title"] = "Rollback"
+    option["selected"] = True
+    option["message"] = message
+    existing_options = [option_item for option_item in store.schedule_options if option_item.get("id") != option_id]
+    store.schedule_options = _normalize_options([option, *existing_options], selected_option_id=option_id)
+    store.selected_schedule_option_id = option_id
+
+
 def _create_repair_proposal(
     store: MemoryStore,
     response: RepairScheduleResponse,
@@ -226,6 +329,8 @@ def _commit_repair_schedule(
     schedule: dict,
     *,
     option_id: str = "repair-1",
+    proposal_id: str | None = None,
+    previous_schedule: dict | None = None,
     message: str = "OR-Tools repair proposal accepted.",
     quality_score: int | None = None,
     hard_conflicts: int = 0,
@@ -250,6 +355,15 @@ def _commit_repair_schedule(
     existing_options = [option_item for option_item in store.schedule_options if option_item.get("id") != option_id]
     store.schedule_options = _normalize_options([option, *existing_options], selected_option_id=option_id)
     store.selected_schedule_option_id = option_id
+    _record_schedule_version(
+        store,
+        source="accepted_proposal" if proposal_id else "repair_commit",
+        schedule=store.schedule,
+        option_id=option_id,
+        proposal_id=proposal_id,
+        previous_schedule=previous_schedule,
+        metadata={"message": message, "quality_score": quality_score, "hard_conflicts": hard_conflicts},
+    )
 
 
 def _build_repair_changed_items(
@@ -385,6 +499,30 @@ def _changed_item(
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
 
+def _extract_excel_upload(body: bytes, content_type: str) -> tuple[str | None, bytes]:
+    if "multipart/form-data" not in content_type.lower():
+        return None, body
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode() + body
+    )
+    for part in message.iter_parts():
+        filename = part.get_filename()
+        payload = part.get_payload(decode=True) or b""
+        if filename or payload:
+            return filename, payload
+    return None, b""
+
+
+@router.post("/import/excel/preview", response_model=dict)
+async def import_excel_preview(request: Request) -> dict:
+    body = await request.body()
+    filename, content = _extract_excel_upload(body, request.headers.get("content-type", ""))
+    preview = preview_excel_schedule(content, filename=filename)
+    if preview.get("errors"):
+        raise HTTPException(status_code=400, detail=preview["errors"])
+    return preview
+
+
 @router.get("/diagnose", response_model=dict)
 def diagnose_schedule(store: MemoryStore = Depends(get_store)) -> dict:
     return diagnose_schedule_generation(
@@ -394,6 +532,7 @@ def diagnose_schedule(store: MemoryStore = Depends(get_store)) -> dict:
         store.slots,
         store.conditions,
         store.time_settings,
+        store.learning_groups,
     )
 
 
@@ -404,6 +543,8 @@ def generate_schedule(
 ) -> GenerateScheduleResponse:
     started_at = perf_counter()
     normalized_engine = engine.strip().lower()
+    if store.learning_groups and normalized_engine in {"legacy", "current", "default"}:
+        normalized_engine = "ortools"
     if normalized_engine in {"legacy", "current", "default"}:
         return _generate_legacy_schedule(store, started_at)
     if normalized_engine == "ortools":
@@ -435,6 +576,13 @@ def _generate_legacy_schedule(store: MemoryStore, started_at: float) -> Generate
     normalized_schedule = schedule_with_session_ids(best_option["schedule"])
     best_option["schedule"] = normalized_schedule
     store.schedule = normalized_schedule
+    _record_schedule_version(
+        store,
+        source="generation",
+        schedule=store.schedule,
+        option_id=store.selected_schedule_option_id,
+        metadata={"engine": "legacy", "quality_score": best_option.get("quality_score")},
+    )
     metrics = best_option.get("metrics", {})
     conflicts_count = best_option.get("conflicts_count")
     if conflicts_count is None:
@@ -465,6 +613,7 @@ def _generate_ortools_schedule(store: MemoryStore, started_at: float) -> Generat
             subjects=store.subjects,
             slots=store.slots,
             conditions=store.conditions,
+            learning_groups=store.learning_groups,
         )
     )
     if not result.success:
@@ -491,6 +640,7 @@ def _generate_ortools_schedule(store: MemoryStore, started_at: float) -> Generat
         subjects=store.subjects,
         slots=store.slots,
         constraints=store.conditions,
+        learning_groups=store.learning_groups,
     )
     option["id"] = "ortools-1"
     option["title"] = "OR-Tools V1"
@@ -512,6 +662,13 @@ def _generate_ortools_schedule(store: MemoryStore, started_at: float) -> Generat
     ]
     store.schedule_options = [option]
     store.selected_schedule_option_id = option["id"]
+    _record_schedule_version(
+        store,
+        source="generation",
+        schedule=store.schedule,
+        option_id=store.selected_schedule_option_id,
+        metadata={"engine": "ortools", "quality_score": option["quality_score"]},
+    )
     return GenerateScheduleResponse(
         success=True,
         message=result.message,
@@ -629,6 +786,7 @@ def repair_current_schedule(
         )
         return _create_repair_proposal(store, response)
 
+    previous_active_schedule = store.schedule
     store.schedule = result.schedule
     option = build_schedule_option(
         option_id="repair-1",
@@ -653,6 +811,14 @@ def repair_current_schedule(
     existing_options = [option_item for option_item in store.schedule_options if option_item.get("id") != "repair-1"]
     store.schedule_options = _normalize_options([option, *existing_options], selected_option_id="repair-1")
     store.selected_schedule_option_id = "repair-1"
+    _record_schedule_version(
+        store,
+        source="repair_commit",
+        schedule=store.schedule,
+        option_id="repair-1",
+        previous_schedule=previous_active_schedule,
+        metadata={"repair_type": payload.repair_type, "repair_policy": payload.repair_policy},
+    )
     return _repair_response_from_result(
         result,
         payload,
@@ -711,6 +877,8 @@ def accept_repair_proposal(
         store,
         proposal.get("schedule", {}),
         option_id=f"repair-{proposal_id}",
+        proposal_id=proposal_id,
+        previous_schedule=store.schedule,
         message="Repair proposal accepted and committed successfully.",
         quality_score=proposal.get("quality_score"),
         hard_conflicts=hard_conflicts,
@@ -775,10 +943,67 @@ def load_large_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
     return {"message": "Large demo data loaded.", "stats": stats}
 
 
+@router.post("/load-pilot-demo", response_model=dict)
+def load_pilot_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
+    stats = store.load_pilot_demo_data()
+    return {"message": "Pilot demo data loaded.", "stats": stats}
+
+
+@router.post("/load-learning-groups-demo", response_model=dict)
+def load_learning_groups_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
+    stats = store.load_learning_groups_demo_data()
+    return {"message": "Learning groups demo data loaded.", "stats": stats}
+
+
 @router.post("/clear", response_model=dict)
 def clear_all_data(store: MemoryStore = Depends(get_store)) -> dict:
     store.clear_all()
     return {"message": "All data cleared."}
+
+
+@router.get("/versions", response_model=list[dict])
+def list_schedule_versions(store: MemoryStore = Depends(get_store)) -> list[dict]:
+    return [_schedule_version_summary(version) for version in reversed(_schedule_versions(store))]
+
+
+@router.post("/versions/{version_id}/rollback", response_model=dict)
+def rollback_schedule_version(
+    version_id: str,
+    store: MemoryStore = Depends(get_store),
+) -> dict:
+    version = next((item for item in _schedule_versions(store) if item.get("version_id") == version_id), None)
+    if not version:
+        raise HTTPException(status_code=404, detail="Schedule version not found.")
+
+    rollback = version.get("rollback") or {}
+    if not rollback.get("available"):
+        raise HTTPException(status_code=400, detail="Schedule version has no previous schedule to restore.")
+
+    previous_schedule = rollback.get("previous_schedule") or {}
+    current_schedule = store.schedule
+    option_id = f"rollback-{version_id}"
+    _set_active_schedule_from_version(
+        store,
+        previous_schedule,
+        option_id=option_id,
+        message=f"Rolled back schedule version {version_id}.",
+    )
+    _repair_proposals(store).clear()
+    rollback_version = _record_schedule_version(
+        store,
+        source="rollback",
+        schedule=store.schedule,
+        option_id=option_id if store.schedule else None,
+        previous_schedule=current_schedule,
+        metadata={"rolled_back_from": version_id},
+    )
+    return {
+        "success": True,
+        "message": f"Schedule rolled back from version {version_id}.",
+        "rolled_back_from": version_id,
+        "version_id": rollback_version["version_id"],
+        "schedule": store.schedule,
+    }
 
 
 @router.get("", response_model=dict[str, dict[str, ScheduleCell]])
@@ -791,7 +1016,16 @@ def select_option(option_id: str, store: MemoryStore = Depends(get_store)) -> di
     option = next((item for item in store.schedule_options if item.get("id") == option_id), None)
     if not option:
         raise HTTPException(status_code=404, detail="Schedule option not found")
+    previous_schedule = store.schedule
     store.selected_schedule_option_id = option_id
     store.schedule = schedule_with_session_ids(option.get("schedule", {}))
     store.schedule_options = _normalize_options(store.schedule_options, selected_option_id=option_id)
+    _record_schedule_version(
+        store,
+        source="option_select",
+        schedule=store.schedule,
+        option_id=option_id,
+        previous_schedule=previous_schedule,
+        metadata={"message": f"Option '{option_id}' selected."},
+    )
     return {"message": f"Option '{option_id}' selected.", "selected_option_id": option_id}

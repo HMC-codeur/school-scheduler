@@ -48,6 +48,39 @@ class Class(BaseModel):
     max_lessons_per_day: int = Field(default=6, ge=1)
 
 
+class LearningGroupCreate(BaseModel):
+    class_id: int | None = None
+    class_name: str | None = None
+    subject_name: str = Field(min_length=1)
+    level: str = Field(min_length=1)
+    display_name: str | None = None
+
+    @field_validator("class_name", "display_name")
+    @classmethod
+    def validate_optional_text(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
+
+    @field_validator("subject_name", "level")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        return _strip_and_validate(value, "learning group field")
+
+    @model_validator(mode="after")
+    def require_class_reference(self) -> "LearningGroupCreate":
+        if self.class_id is None and not self.class_name:
+            raise ValueError("class_id or class_name is required")
+        return self
+
+
+class LearningGroup(BaseModel):
+    id: int
+    class_id: int
+    class_name: str
+    subject_name: str
+    level: str
+    display_name: str
+
+
 class TeacherCreate(BaseModel):
     name: str = Field(min_length=1)
     subjects: list[str] = Field(default_factory=list)

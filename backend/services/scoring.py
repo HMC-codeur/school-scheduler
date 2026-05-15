@@ -4,7 +4,7 @@ from collections import defaultdict
 import hashlib
 import json
 
-from backend.models.schemas import Class, ScheduleCell, Subject, Teacher
+from backend.models.schemas import Class, LearningGroup, ScheduleCell, Subject, Teacher
 
 
 def _schedule_to_dict(schedule: dict[str, dict[str, ScheduleCell]] | dict | None) -> dict:
@@ -37,7 +37,23 @@ def compute_schedule_signature(schedule) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
 
 
-def analyze_schedule(schedule, classes, teachers, subjects, slots, constraints=None) -> dict:
+def _required_sessions(classes: list[Class], subjects: list[Subject], learning_groups: list[LearningGroup] | None = None) -> int:
+    groups = learning_groups or []
+    if not groups:
+        return len(classes) * sum(max(0, subject.hours_per_week) for subject in subjects)
+    subject_hours = {subject.name: max(0, subject.hours_per_week) for subject in subjects}
+    grouped_subjects = {(group.class_id, group.subject_name) for group in groups}
+    total = 0
+    for class_obj in classes:
+        for subject in subjects:
+            if (class_obj.id, subject.name) in grouped_subjects:
+                total += sum(subject_hours[subject.name] for group in groups if group.class_id == class_obj.id and group.subject_name == subject.name)
+            else:
+                total += subject_hours[subject.name]
+    return total
+
+
+def analyze_schedule(schedule, classes, teachers, subjects, slots, constraints=None, learning_groups: list[LearningGroup] | None = None) -> dict:
     normalized = _schedule_to_dict(schedule)
     metrics = {
         "teacher_conflicts": 0,
@@ -51,14 +67,14 @@ def analyze_schedule(schedule, classes, teachers, subjects, slots, constraints=N
     }
 
     if not normalized:
-        expected = len(classes) * sum(max(0, s.hours_per_week) for s in subjects)
+        expected = _required_sessions(classes, subjects, learning_groups)
         metrics["unplaced_sessions"] = expected
         metrics["total_penalty"] = max(100, expected * 20)
         return metrics
 
     slot_order = {slot: idx for idx, slot in enumerate(slots)}
     teacher_subjects = {t.name: set(t.subjects) for t in teachers}
-    required_total = len(classes) * sum(max(0, s.hours_per_week) for s in subjects)
+    required_total = _required_sessions(classes, subjects, learning_groups)
 
     teacher_slot_use: dict[tuple[str, str], int] = defaultdict(int)
     class_slot_use: dict[tuple[str, str], int] = defaultdict(int)
@@ -116,8 +132,8 @@ def analyze_schedule(schedule, classes, teachers, subjects, slots, constraints=N
     return metrics
 
 
-def score_schedule(schedule, classes, teachers, subjects, slots, constraints=None) -> dict:
-    metrics = analyze_schedule(schedule, classes, teachers, subjects, slots, constraints)
+def score_schedule(schedule, classes, teachers, subjects, slots, constraints=None, learning_groups: list[LearningGroup] | None = None) -> dict:
+    metrics = analyze_schedule(schedule, classes, teachers, subjects, slots, constraints, learning_groups)
     raw_score = 100 - int(metrics.get("total_penalty", 0))
     if not _schedule_to_dict(schedule):
         raw_score = min(raw_score, 0)
@@ -144,8 +160,8 @@ def score_schedule(schedule, classes, teachers, subjects, slots, constraints=Non
     return {"quality_score": quality_score, "metrics": public_metrics, "description": description}
 
 
-def build_schedule_option(option_id, schedule, classes, teachers, subjects, slots, constraints=None) -> dict:
-    scored = score_schedule(schedule, classes, teachers, subjects, slots, constraints)
+def build_schedule_option(option_id, schedule, classes, teachers, subjects, slots, constraints=None, learning_groups: list[LearningGroup] | None = None) -> dict:
+    scored = score_schedule(schedule, classes, teachers, subjects, slots, constraints, learning_groups)
     number = option_id.split("-")[-1] if "-" in option_id else option_id
     return {
         "id": str(option_id),

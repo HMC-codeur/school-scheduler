@@ -44,6 +44,9 @@ class _Session:
     class_name: str
     subject: str
     session_id: str
+    target_type: str = "class"
+    base_class_id: int | None = None
+    group_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -151,18 +154,25 @@ class ORToolsSolver(ScheduleSolver):
         by_teacher_day: dict[tuple[int, str], list[object]] = defaultdict(list)
         by_class_subject_day: dict[tuple[int, str, str], list[object]] = defaultdict(list)
         by_subject_slot: dict[tuple[str, str], list[object]] = defaultdict(list)
+        whole_class_by_base_slot: dict[tuple[int, str], list[object]] = defaultdict(list)
+        group_by_base_slot: dict[tuple[int, int, str], list[object]] = defaultdict(list)
         teacher_expected_loads: dict[int, int] = defaultdict(int)
 
         for session in sessions:
             session_teacher_ids = set()
             for candidate_index, candidate in enumerate(domains[session.id]):
                 var = variables[(session.id, candidate_index)]
-                by_class_slot[(session.class_id, candidate.slot)].append(var)
+                class_slot_resource = session.class_id if session.target_type == "class" else -(session.group_id or session.id + 1)
+                by_class_slot[(class_slot_resource, candidate.slot)].append(var)
                 by_teacher_slot[(candidate.teacher_id, candidate.slot)].append(var)
                 by_class_day[(session.class_id, candidate.day)].append(var)
                 by_teacher_day[(candidate.teacher_id, candidate.day)].append(var)
                 by_class_subject_day[(session.class_id, session.subject, candidate.day)].append(var)
                 by_subject_slot[(session.subject, candidate.slot)].append(var)
+                if session.target_type == "group" and session.group_id is not None:
+                    group_by_base_slot[(session.base_class_id or session.class_id, session.group_id, candidate.slot)].append(var)
+                else:
+                    whole_class_by_base_slot[(session.base_class_id or session.class_id, candidate.slot)].append(var)
                 session_teacher_ids.add(candidate.teacher_id)
             for teacher_id in session_teacher_ids:
                 teacher_expected_loads[teacher_id] += 1
@@ -171,6 +181,10 @@ class ORToolsSolver(ScheduleSolver):
             model.Add(sum(vars_for_resource) <= 1)
         for vars_for_resource in by_teacher_slot.values():
             model.Add(sum(vars_for_resource) <= 1)
+        for (base_class_id, slot), whole_vars in whole_class_by_base_slot.items():
+            for (group_base_class_id, _group_id, group_slot), group_vars in group_by_base_slot.items():
+                if group_base_class_id == base_class_id and group_slot == slot:
+                    model.Add(sum(whole_vars) + sum(group_vars) <= 1)
         for (class_id, _day), vars_for_resource in by_class_day.items():
             model.Add(sum(vars_for_resource) <= context.class_daily_limits[class_id])
         for (teacher_id, _day), vars_for_resource in by_teacher_day.items():
@@ -381,6 +395,8 @@ class _HardConstraintContext:
 
 
 def _required_sessions(input_data: ScheduleInput) -> int:
+    if input_data.learning_groups:
+        return len(_build_sessions(input_data))
     return len(input_data.classes) * sum(max(0, subject.hours_per_week) for subject in input_data.subjects)
 
 
@@ -389,8 +405,38 @@ def _build_sessions(input_data: ScheduleInput) -> list[_Session]:
     numeric_id = 0
     previous_ids = previous_session_ids_by_class_subject(input_data.previous_schedule)
     occurrence_by_course: dict[tuple[str, str], int] = defaultdict(int)
+    groups_by_class_subject: dict[tuple[int, str], list] = defaultdict(list)
+    for group in input_data.learning_groups:
+        groups_by_class_subject[(group.class_id, group.subject_name)].append(group)
     for class_obj in input_data.classes:
         for subject in input_data.subjects:
+            groups = groups_by_class_subject.get((class_obj.id, subject.name), [])
+            if groups:
+                for group in groups:
+                    key = (group.display_name, subject.name)
+                    for _ in range(max(0, subject.hours_per_week)):
+                        occurrence_by_course[key] += 1
+                        occurrence = occurrence_by_course[key]
+                        existing_ids = previous_ids.get(key, [])
+                        logical_session_id = (
+                            existing_ids[occurrence - 1]
+                            if occurrence <= len(existing_ids)
+                            else stable_session_id(group.display_name, subject.name, occurrence)
+                        )
+                        sessions.append(
+                            _Session(
+                                numeric_id,
+                                class_obj.id,
+                                group.display_name,
+                                subject.name,
+                                logical_session_id,
+                                "group",
+                                class_obj.id,
+                                group.id,
+                            )
+                        )
+                        numeric_id += 1
+                continue
             key = (class_obj.name, subject.name)
             for _ in range(max(0, subject.hours_per_week)):
                 occurrence_by_course[key] += 1
@@ -401,7 +447,7 @@ def _build_sessions(input_data: ScheduleInput) -> list[_Session]:
                     if occurrence <= len(existing_ids)
                     else stable_session_id(class_obj.name, subject.name, occurrence)
                 )
-                sessions.append(_Session(numeric_id, class_obj.id, class_obj.name, subject.name, logical_session_id))
+                sessions.append(_Session(numeric_id, class_obj.id, class_obj.name, subject.name, logical_session_id, "class", class_obj.id, None))
                 numeric_id += 1
     return sessions
 
@@ -760,6 +806,7 @@ def _build_metrics(
         input_data.subjects,
         input_data.slots,
         input_data.conditions,
+        input_data.learning_groups,
     )
     class_conflicts = int(scored.get("class_conflicts", 0))
     teacher_conflicts = int(scored.get("teacher_conflicts", 0))
@@ -868,6 +915,7 @@ def _evaluate_quality(
         input_data.subjects,
         input_data.slots,
         input_data.conditions,
+        input_data.learning_groups,
     )
     hard_conflicts = (
         int(hard.get("class_conflicts", 0))

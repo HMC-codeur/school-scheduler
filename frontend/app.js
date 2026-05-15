@@ -1,65 +1,3 @@
-const API = "";
-const scheduleState = {
-  slots: [],
-  classes: [],
-  teachers: [],
-  subjects: [],
-  schedule: {},
-  selectedClass: "",
-  selectedTeacher: "",
-  viewMode: "class",
-  search: "",
-  hasGeneratedSchedule: false,
-  isGenerating: false,
-  scheduleOptions: [],
-  selectedOptionId: null,
-  backendStatus: "unknown",
-  latestMetrics: null,
-  latestDiagnosis: null,
-  repairProposal: null,
-  repairPreview: null,
-  repairViewMode: "current",
-  isRepairing: false,
-  activeView: "dashboard-view",
-};
-
-const CONDITION_LABELS = {
-  teacher_unavailable: "Professeur indisponible",
-  class_unavailable: "Classe indisponible",
-  subject_morning_preference: "Matière le matin",
-  subject_prefer_morning: "Matière le matin",
-  teacher_prefer_morning: "Professeur le matin",
-  avoid_subject_repeat: "Éviter répétition",
-  avoid_subject_repeat_same_day: "Éviter répétition",
-  avoid_long_sequence: "Éviter longues séries",
-};
-
-const PREFERENCE_CONDITIONS = new Set(["subject_morning_preference", "subject_prefer_morning", "teacher_prefer_morning", "avoid_subject_repeat", "avoid_subject_repeat_same_day", "avoid_long_sequence"]);
-
-const SCORE_CATEGORY_LABELS = {
-  class_gap: "Trous classes",
-  teacher_gap: "Trous professeurs",
-  class_long_sequence: "Longues séries",
-  teacher_long_sequence: "Longues séries",
-  avoid_long_sequence: "Longues séries",
-  teacher_conflict: "Conflits",
-  class_conflict: "Conflits",
-  unplaced_sessions: "Sessions non placées",
-  subject_morning_preference: "Préférences respectées",
-  teacher_morning_preference: "Préférences respectées",
-  class_load_balance: "Bonus",
-  teacher_load_balance: "Bonus",
-  global_distribution: "Bonus",
-};
-
-const $ = (id) => document.getElementById(id);
-const create = (tag, text, className) => {
-  const el = document.createElement(tag);
-  if (text !== undefined) el.textContent = text;
-  if (className) el.className = className;
-  return el;
-};
-
 function setActiveView(viewId) {
   const target = $(viewId) ? viewId : "dashboard-view";
   scheduleState.activeView = target;
@@ -81,28 +19,6 @@ function initializeNavigation() {
   setActiveView(scheduleState.activeView);
 }
 
-async function api(path, requestOptions) {
-  const options = requestOptions || {};
-  let response;
-  try {
-    response = await fetch(`${API}${path}`, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
-  } catch (error) {
-    throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
-  }
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    const detail = err?.detail;
-    const message = Array.isArray(detail)
-      ? detail.map((item) => `${(item.loc || []).join(".")}: ${item.msg}`).join(" | ")
-      : (typeof detail === "string" ? detail : (err.message || "Request failed"));
-    throw new Error(message);
-  }
-  return response.json().catch(() => ({}));
-}
-
 async function refreshBackendStatus() {
   const pill = $("backend-status-pill");
   if (!pill) return;
@@ -116,23 +32,6 @@ async function refreshBackendStatus() {
     pill.textContent = "Backend indisponible";
     pill.className = "status-pill status-error";
   }
-}
-
-function notify(message, type = "success") {
-  const el = $("toast");
-  if (!el) return;
-  el.textContent = message;
-  el.className = `toast ${type}`;
-  setTimeout(() => (el.className = "toast hidden"), 3500);
-}
-
-function scoreLabel(score) {
-  const numeric = Number(score);
-  if (!Number.isFinite(numeric)) return { label: "Non généré", className: "muted" };
-  if (numeric >= 90) return { label: "Excellent", className: "excellent" };
-  if (numeric >= 75) return { label: "Bon", className: "good" };
-  if (numeric >= 50) return { label: "Moyen", className: "average" };
-  return { label: "À améliorer", className: "bad" };
 }
 
 function updateDashboardMetrics(metrics = scheduleState.latestMetrics || {}) {
@@ -150,22 +49,6 @@ function updateDashboardMetrics(metrics = scheduleState.latestMetrics || {}) {
   const required = metrics?.required_sessions;
   $("dashboard-sessions").textContent = scheduled != null && required != null ? `${scheduled}/${required}` : "-";
   $("dashboard-generation-time").textContent = metrics?.generation_time_ms != null ? `${metrics.generation_time_ms} ms` : "-";
-}
-
-function setLoading(button, isLoading, text) {
-  if (!button) return;
-  button.disabled = isLoading;
-  if (isLoading) {
-    if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
-    button.textContent = text;
-    return;
-  }
-  button.textContent = button.dataset.originalText || button.textContent;
-  delete button.dataset.originalText;
-}
-
-function setButtonsLoading(buttons, isLoading, text) {
-  Array.from(buttons || []).forEach((button) => setLoading(button, isLoading, text));
 }
 
 function getUnavailableSlots() {
@@ -456,15 +339,6 @@ function normalizeScheduleFilters() {
   if (teacherSelect) teacherSelect.value = scheduleState.selectedTeacher;
 }
 
-function getSelectedScheduleOption() {
-  const options = Array.isArray(scheduleState.scheduleOptions) ? scheduleState.scheduleOptions : [];
-  if (!options.length) return null;
-  return options.find((option) => option.selected === true)
-    || options.find((option) => option.id === scheduleState.selectedOptionId)
-    || options[0]
-    || null;
-}
-
 function renderQualityMetrics(metrics) {
   const card = $("quality-card");
   const hasMetrics = Number.isFinite(metrics?.quality_score);
@@ -607,14 +481,13 @@ function summarizeScoreGroup(group) {
 async function selectScheduleOption(optionId) {
   await api(`/schedule/options/${encodeURIComponent(optionId)}/select`, { method: "POST" });
   const [scheduleOptions, schedule] = await Promise.all([api("/schedule/options"), api("/schedule")]);
-  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  scheduleState.schedule = schedule || {};
-  scheduleState.selectedOptionId = scheduleState.scheduleOptions.find((option) => option.selected)?.id || scheduleState.selectedOptionId || optionId;
-  const selected = getSelectedScheduleOption();
+  const selected = applyActiveSchedule(schedule, scheduleOptions, "option", optionId);
+  resetRepairState();
   renderScheduleOptions();
   renderQualityMetrics(selected || {});
   renderScoreBreakdown(selected);
   renderScheduleTableFromState();
+  await loadScheduleVersions();
 }
 
 function renderScheduleOptions() {
@@ -640,6 +513,81 @@ function renderScheduleOptions() {
     return card;
   });
   root.replaceChildren(...cards);
+}
+
+function formatScheduleVersionReason(reason) {
+  const labels = {
+    generation: "Génération",
+    option_select: "Option sélectionnée",
+    repair_commit: "Réparation appliquée",
+    accepted_proposal: "Proposition acceptée",
+    rollback: "Rollback",
+  };
+  return labels[reason] || reason || "Version";
+}
+
+async function loadScheduleVersions() {
+  const versions = await api("/schedule/versions").catch((error) => {
+    notify(`Historique indisponible : ${error.message}`, "error");
+    return [];
+  });
+  scheduleState.scheduleVersions = Array.isArray(versions) ? versions : [];
+  renderScheduleVersions();
+}
+
+function renderScheduleVersions() {
+  const root = $("schedule-versions");
+  if (!root) return;
+  const versions = Array.isArray(scheduleState.scheduleVersions) ? scheduleState.scheduleVersions : [];
+  if (!versions.length) {
+    root.replaceChildren(create("p", "Aucune version de planning enregistrée.", "hint"));
+    return;
+  }
+
+  const items = versions.map((version) => {
+    const article = create("article", undefined, "schedule-version-item");
+    const main = create("div");
+    const reason = version.reason || version.type;
+    main.append(create("h4", formatScheduleVersionReason(reason)));
+    const meta = create("div", undefined, "schedule-version-meta");
+    [
+      `Date : ${formatDateTime(version.created_at)}`,
+      `Actif : ${version.active_schedule_size ?? 0}`,
+      `Précédent : ${version.previous_schedule_size ?? 0}`,
+      `Rollback : ${version.has_previous_schedule ? "oui" : "non"}`,
+      version.option_id ? `Option : ${version.option_id}` : "",
+      version.proposal_id ? `Proposal : ${version.proposal_id}` : "",
+    ].filter(Boolean).forEach((line) => meta.append(create("span", line)));
+    main.append(meta);
+    article.append(main);
+
+    if (version.has_previous_schedule) {
+      const btn = create("button", "Restaurer");
+      btn.dataset.versionId = version.id;
+      btn.addEventListener("click", () => rollbackScheduleVersion(version.id, btn));
+      article.append(btn);
+    } else {
+      article.append(create("span", "Non restaurable", "hint"));
+    }
+    return article;
+  });
+  root.replaceChildren(...items);
+}
+
+async function rollbackScheduleVersion(versionId, button) {
+  if (!versionId) return;
+  setLoading(button, true, "Restauration...");
+  try {
+    const res = await api(`/schedule/versions/${encodeURIComponent(versionId)}/rollback`, { method: "POST" });
+    resetRepairState();
+    await refreshScheduleTable();
+    renderGenerationBanner("Planning restauré depuis l'historique.", "success");
+    notify(res.message || "Planning restauré.");
+  } catch (error) {
+    notify(`Rollback impossible : ${error.message}`, "error");
+  } finally {
+    setLoading(button, false);
+  }
 }
 
 function renderScheduleTableFromState() {
@@ -729,437 +677,18 @@ function renderScheduleTableFromState() {
   hideEmptyMessage();
 }
 
-function getDisplayedSchedule() {
-  if (scheduleState.repairViewMode === "proposal" && scheduleState.repairPreview?.proposed_schedule) {
-    return scheduleState.repairPreview.proposed_schedule || {};
-  }
-  return scheduleState.schedule || {};
-}
-
-function buildRepairDiffMap() {
-  const source = scheduleState.repairPreview || scheduleState.repairProposal || null;
-  const changedItems = Array.isArray(source?.changed_items) ? source.changed_items : [];
-  const map = {
-    class: new Map(),
-    teacher: new Map(),
-  };
-  changedItems.forEach((item) => {
-    const className = item?.class_name || item?.class_id || "";
-    const subject = item?.subject_name || item?.subject_id || "Cours";
-    const sessionId = item?.session_id || "";
-    const oldSlot = item?.old_slot || "";
-    const newSlot = item?.new_slot || "";
-    const oldTeacher = item?.old_teacher_name || item?.old_teacher_id || "";
-    const newTeacher = item?.new_teacher_name || item?.new_teacher_id || "";
-    const changeType = item?.change_type || "";
-
-    if (oldSlot && className) addRepairDiffEntry(map.class, oldSlot, className, {
-      state: changeType === "removed" ? "removed" : "moved removed",
-      label: changeType === "removed" ? "Retiré" : "Déplacé depuis ici",
-      subject,
-      sessionId,
-      detail: `${oldSlot} → ${newSlot || "-"}`,
-    });
-    if (newSlot && className) addRepairDiffEntry(map.class, newSlot, className, {
-      state: changeType === "added" ? "added" : "moved added",
-      label: changeType === "added" ? "Ajouté" : "Déplacé ici",
-      subject,
-      sessionId,
-      detail: `${oldSlot || "-"} → ${newSlot}`,
-    });
-    if (oldSlot && oldTeacher) addRepairDiffEntry(map.teacher, oldSlot, oldTeacher, {
-      state: changeType === "removed" || changeType === "teacher_changed" ? "removed" : "moved removed",
-      label: changeType === "teacher_changed" ? "Professeur changé" : "Déplacé depuis ici",
-      subject,
-      className,
-      sessionId,
-      detail: `${oldTeacher || "-"} → ${newTeacher || "-"}`,
-    });
-    if (newSlot && newTeacher) addRepairDiffEntry(map.teacher, newSlot, newTeacher, {
-      state: changeType === "added" || changeType === "teacher_changed" ? "added" : "moved added",
-      label: changeType === "teacher_changed" ? "Nouveau professeur" : "Déplacé ici",
-      subject,
-      className,
-      sessionId,
-      detail: `${oldTeacher || "-"} → ${newTeacher || "-"}`,
-    });
-  });
-  return map;
-}
-
-function addRepairDiffEntry(map, slot, resource, entry) {
-  const key = `${slot}||${resource}`;
-  const current = map.get(key) || [];
-  current.push(entry);
-  map.set(key, current);
-}
-
-function getRepairCellState(diffMap, slot, selected, viewMode) {
-  if (!diffMap || !slot || !selected) return [];
-  const bucket = viewMode === "teacher" ? diffMap.teacher : diffMap.class;
-  return bucket.get(`${slot}||${selected}`) || [];
-}
-
-function renderRepairOverlay(cell, states) {
-  const items = Array.isArray(states) ? states : [];
-  if (!items.length) return;
-  const hasAdded = items.some((item) => item.state.includes("added"));
-  const hasRemoved = items.some((item) => item.state.includes("removed"));
-  const hasMoved = items.some((item) => item.state.includes("moved"));
-  cell.classList.toggle("repair-added", hasAdded);
-  cell.classList.toggle("repair-removed", hasRemoved);
-  cell.classList.toggle("repair-moved", hasMoved);
-  const summary = items.map((item) => {
-    const parts = [item.label, item.subject];
-    if (item.className) parts.push(item.className);
-    if (item.detail) parts.push(item.detail);
-    if (item.sessionId) parts.push(item.sessionId);
-    return parts.filter(Boolean).join(" · ");
-  }).join("\n");
-  cell.title = summary;
-  const overlay = create("div", undefined, "repair-cell-overlay");
-  items.slice(0, 2).forEach((item) => {
-    overlay.append(create("span", `${item.label}: ${item.subject || "cours"}`, "repair-chip"));
-  });
-  cell.append(overlay);
-}
-
-function getDefaultRepairTarget(repairType) {
-  if (repairType === "repair_class") return scheduleState.selectedClass || scheduleState.classes[0] || "";
-  if (repairType === "repair_day") return (scheduleState.slots[0] || "").split("-", 1)[0] || "";
-  return scheduleState.selectedTeacher || scheduleState.teachers[0] || "";
-}
-
-function repairPayloadFromControls() {
-  const repairType = $("repair-type")?.value || "repair_teacher";
-  const target = ($("repair-target")?.value || getDefaultRepairTarget(repairType)).trim();
-  if (!target) throw new Error("Choisissez une cible de réparation.");
-  const payload = {
-    repair_type: repairType,
-    repair_policy: $("repair-policy")?.value || "balanced",
-    repair_target: target,
-    time_budget_seconds: 5,
-    commit: false,
-  };
-  if (repairType === "repair_day") payload.day = target;
-  return payload;
-}
-
-async function simulateRepairProposal() {
-  if (scheduleState.isRepairing) {
-    notify("Simulation de réparation déjà en cours.", "info");
-    return;
-  }
-  const btn = $("simulate-repair-btn");
-  setLoading(btn, true, "Simulation...");
-  setRepairActionLoading(true);
-  scheduleState.isRepairing = true;
-  renderRepairStatus("Simulation de réparation en cours...", "loading");
-  try {
-    if (!scheduleState.hasGeneratedSchedule || !Object.keys(scheduleState.schedule || {}).length) {
-      throw new Error("Générez d'abord un planning avant de simuler une réparation.");
-    }
-    const payload = repairPayloadFromControls();
-    const proposal = await api("/schedule/repair", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    scheduleState.repairProposal = proposal;
-    scheduleState.repairPreview = null;
-    scheduleState.repairViewMode = "current";
-    updateRepairViewToggle();
-    focusRepairTargetInSchedule(payload);
-    renderRepairProposal(proposal);
-    renderScheduleTableFromState();
-    renderRepairStatus("Proposition de réparation créée.", "success");
-    notify("Proposition de réparation créée.");
-  } catch (error) {
-    renderRepairStatus(`Échec de simulation : ${error.message}`, "error");
-    notify(error.message, "error");
-  } finally {
-    scheduleState.isRepairing = false;
-    setRepairActionLoading(false);
-    setLoading(btn, false);
-  }
-}
-
-function focusRepairTargetInSchedule(payload) {
-  const target = payload?.repair_target || "";
-  if (payload?.repair_type === "repair_class" && target) {
-    scheduleState.viewMode = "class";
-    scheduleState.selectedClass = target;
-  }
-  if (payload?.repair_type === "repair_teacher" && target) {
-    scheduleState.viewMode = "teacher";
-    scheduleState.selectedTeacher = target;
-  }
-  const modeSelect = $("schedule-view-mode");
-  const classSelect = $("schedule-class-filter");
-  const teacherSelect = $("schedule-teacher-filter");
-  if (modeSelect) modeSelect.value = scheduleState.viewMode;
-  if (classSelect && scheduleState.classes.includes(scheduleState.selectedClass)) classSelect.value = scheduleState.selectedClass;
-  if (teacherSelect && scheduleState.teachers.includes(scheduleState.selectedTeacher)) teacherSelect.value = scheduleState.selectedTeacher;
-  syncScheduleFiltersUI();
-}
-
-async function previewRepairProposal() {
-  const proposalId = scheduleState.repairProposal?.proposal_id;
-  if (!proposalId) {
-    renderRepairStatus("Aucune proposition à prévisualiser.", "error");
-    notify("Aucune proposition à prévisualiser.", "error");
-    return;
-  }
-  setRepairActionLoading(true);
-  try {
-    const preview = await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}`);
-    scheduleState.repairPreview = preview;
-    renderRepairProposal(scheduleState.repairProposal, preview);
-    renderScheduleTableFromState();
-    renderRepairStatus("Prévisualisation chargée. Le planning actif est inchangé.", "success");
-    notify("Prévisualisation chargée.");
-  } catch (error) {
-    renderRepairStatus(`Échec de prévisualisation : ${error.message}`, "error");
-    notify(error.message, "error");
-  } finally {
-    setRepairActionLoading(false);
-  }
-}
-
-async function setRepairViewMode(mode) {
-  if (mode === "proposal") {
-    const proposalId = scheduleState.repairProposal?.proposal_id;
-    if (!proposalId) {
-      renderRepairStatus("Aucune proposition à afficher.", "error");
-      notify("Aucune proposition à afficher.", "error");
-      return;
-    }
-    if (!scheduleState.repairPreview?.proposed_schedule) {
-      await previewRepairProposal();
-    }
-    if (!scheduleState.repairPreview?.proposed_schedule) return;
-  }
-  scheduleState.repairViewMode = mode === "proposal" ? "proposal" : "current";
-  updateRepairViewToggle();
-  renderScheduleTableFromState();
-}
-
-function updateRepairViewToggle() {
-  const currentBtn = $("repair-view-current-btn");
-  const proposalBtn = $("repair-view-proposal-btn");
-  if (!currentBtn || !proposalBtn) return;
-  currentBtn.classList.toggle("active", scheduleState.repairViewMode === "current");
-  proposalBtn.classList.toggle("active", scheduleState.repairViewMode === "proposal");
-  proposalBtn.disabled = !scheduleState.repairProposal?.proposal_id;
-}
-
-async function acceptRepairProposal() {
-  const proposalId = scheduleState.repairProposal?.proposal_id;
-  if (!proposalId) {
-    renderRepairStatus("Aucune proposition à accepter.", "error");
-    notify("Aucune proposition à accepter.", "error");
-    return;
-  }
-  setRepairActionLoading(true);
-  try {
-    await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/accept`, { method: "POST" });
-    resetRepairState("Proposition acceptée. Le planning actif a été mis à jour.", "success");
-    await refreshScheduleTable();
-    renderScheduleTableFromState();
-    notify("Réparation acceptée.");
-  } catch (error) {
-    renderRepairStatus(`Échec d'acceptation : ${error.message}`, "error");
-    notify(error.message, "error");
-  } finally {
-    setRepairActionLoading(false);
-  }
-}
-
-async function rejectRepairProposal() {
-  const proposalId = scheduleState.repairProposal?.proposal_id;
-  if (!proposalId) {
-    renderRepairStatus("Aucune proposition à refuser.", "error");
-    notify("Aucune proposition à refuser.", "error");
-    return;
-  }
-  setRepairActionLoading(true);
-  try {
-    await api(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}`, { method: "DELETE" });
-    resetRepairState("Proposition refusée. Le planning actif est inchangé.", "success");
-    renderScheduleTableFromState();
-    notify("Proposition refusée.");
-  } catch (error) {
-    renderRepairStatus(`Échec du refus : ${error.message}`, "error");
-    notify(error.message, "error");
-  } finally {
-    setRepairActionLoading(false);
-  }
-}
-
-async function exportRepairProposalPdf() {
-  const proposalId = scheduleState.repairProposal?.proposal_id;
-  if (!proposalId) {
-    renderRepairStatus("Aucune proposition à exporter.", "error");
-    notify("Aucune proposition à exporter.", "error");
-    return;
-  }
-  setRepairActionLoading(true);
-  try {
-    let response;
-    try {
-      response = await fetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
-    } catch (error) {
-      throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
-    }
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || "Export PDF repair indisponible.");
-    }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `repair-report-${proposalId}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    notify("Export PDF Repair prêt.");
-  } catch (error) {
-    renderRepairStatus(`Échec export PDF Repair : ${error.message}`, "error");
-    notify(error.message, "error");
-  } finally {
-    setRepairActionLoading(false);
-  }
-}
-
-function renderRepairStatus(message, level = "info") {
-  const el = $("repair-status");
-  if (!el) return;
-  el.textContent = message;
-  el.dataset.level = level;
-}
-
-function resetRepairState(message = "Aucune proposition de réparation.", level = "info") {
-  scheduleState.repairProposal = null;
-  scheduleState.repairPreview = null;
-  scheduleState.repairViewMode = "current";
-  renderRepairProposal(null);
-  updateRepairViewToggle();
-  renderRepairStatus(message, level);
-}
-
-function setRepairActionLoading(isLoading) {
-  document.querySelectorAll("#repair-proposal button").forEach((button) => {
-    button.disabled = isLoading;
-  });
-}
-
-function renderRepairProposal(proposal, preview = null) {
-  const root = $("repair-proposal");
-  if (!root) return;
-  if (!proposal) {
-    root.replaceChildren(create("p", "Aucune proposition simulée.", "hint"));
-    return;
-  }
-  const details = preview || proposal;
-  const hasProposalId = Boolean(proposal.proposal_id);
-  const metrics = [
-    ["Proposal", proposal.proposal_id || "-"],
-    ["Type", details.repair_type || proposal.repair_type || "-"],
-    ["Policy", details.repair_policy || proposal.repair_policy || "-"],
-    ["Changements", String(details.changed_items_count ?? proposal.changed_items_count ?? 0)],
-    ["Stabilité", formatScore(details.stability_score ?? proposal.stability_score)],
-    ["Qualité", formatScore(details.quality_score ?? proposal.quality_score)],
-    ["Conflits hard", String(details.hard_conflicts ?? proposal.hard_conflicts ?? "-")],
-  ];
-  const summary = create("div", undefined, "repair-summary");
-  metrics.forEach(([label, value]) => {
-    const item = create("div", undefined, "repair-metric");
-    item.append(create("span", label), create("strong", value));
-    summary.append(item);
-  });
-
-  const actions = create("div", undefined, "repair-actions");
-  const previewBtn = create("button", "Prévisualiser");
-  const acceptBtn = create("button", "Accepter", "primary");
-  const rejectBtn = create("button", "Refuser", "danger");
-  const exportBtn = create("button", "Exporter PDF Repair");
-  previewBtn.disabled = !hasProposalId;
-  acceptBtn.disabled = !hasProposalId;
-  rejectBtn.disabled = !hasProposalId;
-  exportBtn.disabled = !hasProposalId;
-  previewBtn.addEventListener("click", previewRepairProposal);
-  acceptBtn.addEventListener("click", acceptRepairProposal);
-  rejectBtn.addEventListener("click", rejectRepairProposal);
-  exportBtn.addEventListener("click", exportRepairProposalPdf);
-  actions.append(previewBtn, exportBtn, acceptBtn, rejectBtn);
-
-  const title = create("h4", preview ? "Détails prévisualisés" : "Proposition simulée");
-  const viewHint = create(
-    "p",
-    scheduleState.repairViewMode === "proposal"
-      ? "Le tableau affiche la proposition réparée. Le planning actif reste inchangé tant que vous n'acceptez pas."
-      : "Le tableau affiche le planning actuel avec les changements proposés en surbrillance.",
-    "hint",
-  );
-  root.replaceChildren(title, viewHint, summary, renderChangedItems(details.changed_items || proposal.changed_items || []), actions);
-}
-
-function renderChangedItems(items) {
-  const section = create("div", undefined, "changed-items");
-  const list = Array.isArray(items) ? items : [];
-  section.append(create("h4", "Cours modifiés"));
-  if (!list.length) {
-    section.append(create("p", "Aucun changement détaillé retourné.", "hint"));
-    return section;
-  }
-  const entries = list.map((item) => {
-    const card = create("article", undefined, "changed-item");
-    const title = [
-      item?.class_name || item?.class_id || "Classe inconnue",
-      item?.subject_name || item?.subject_id || "Matière inconnue",
-    ].join(" · ");
-    const slotText = `${item?.old_slot || "-"} → ${item?.new_slot || "-"}`;
-    const teacherText = `${item?.old_teacher_name || item?.old_teacher_id || "-"} → ${item?.new_teacher_name || item?.new_teacher_id || "-"}`;
-    card.append(
-      create("strong", title),
-      create("span", `Créneau : ${slotText}`, "hint"),
-      create("span", `Professeur : ${teacherText}`, "hint"),
-      create("span", `Session : ${item?.session_id || "-"}`, "hint"),
-      create("span", `Type : ${item?.change_type || "-"}`, "hint"),
-    );
-    return card;
-  });
-  section.append(...entries);
-  return section;
-}
-
-function formatScore(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? `${numeric}/100` : "--";
-}
-
 async function refreshScheduleTable() {
   const [classes, slots, schedule, teachers, scheduleOptions] = await Promise.all([api("/classes"), api("/slots"), api("/schedule"), api("/teachers"), api("/schedule/options").catch(() => [])]);
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.slots = slots;
-  scheduleState.schedule = schedule || {};
   scheduleState.teachers = teachers.map((t) => t.name);
-  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  if (!scheduleState.hasGeneratedSchedule) {
-    resetRepairState();
-  }
-  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
-  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
-  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
-  const selected = getSelectedScheduleOption();
-  if (selected) scheduleState.latestMetrics = { ...(scheduleState.latestMetrics || {}), ...selected };
+  const selected = applyActiveSchedule(schedule, scheduleOptions, "refresh");
   renderScheduleOptions();
   renderQualityMetrics(selected || {});
   renderScoreBreakdown(selected);
   populateScheduleFilters();
   renderScheduleTableFromState();
+  await loadScheduleVersions();
 }
 
 async function refresh() {
@@ -1196,17 +725,7 @@ async function refresh() {
   scheduleState.classes = classes.map((c) => c.name);
   scheduleState.teachers = teachers.map((t) => t.name);
   scheduleState.subjects = subjects.map((s) => s.name);
-  scheduleState.schedule = schedule || {};
-  scheduleState.hasGeneratedSchedule = Object.keys(scheduleState.schedule).length > 0;
-  if (!scheduleState.hasGeneratedSchedule) {
-    resetRepairState();
-  }
-  scheduleState.scheduleOptions = Array.isArray(scheduleOptions) ? scheduleOptions : [];
-  const backendSelected = scheduleState.scheduleOptions.find((option) => option.selected === true);
-  if (backendSelected) scheduleState.selectedOptionId = backendSelected.id;
-  else if (!scheduleState.selectedOptionId || !scheduleState.scheduleOptions.some((option) => option.id === scheduleState.selectedOptionId)) scheduleState.selectedOptionId = scheduleState.scheduleOptions[0]?.id || null;
-  const selected = getSelectedScheduleOption();
-  if (selected) scheduleState.latestMetrics = { ...(scheduleState.latestMetrics || {}), ...selected };
+  const selected = applyActiveSchedule(schedule, scheduleOptions, "refresh");
   renderScheduleOptions();
 
   populateScheduleFilters();
@@ -1215,6 +734,7 @@ async function refresh() {
   renderQualityMetrics(selected || {});
   renderScoreBreakdown(selected);
   updateConditionFieldVisibility();
+  await loadScheduleVersions();
 }
 
 async function runAction(buttonId, path, loadingLabel) {
@@ -1228,8 +748,12 @@ async function runAction(buttonId, path, loadingLabel) {
       $("demo-summary").textContent = "Aucune démo volumineuse chargée.";
       renderGenerationBanner("Données effacées. Vous pouvez recharger une démo ou saisir vos données.", "info");
       scheduleState.hasGeneratedSchedule = false;
+      scheduleState.scheduleOptions = [];
+      scheduleState.selectedOptionId = null;
+      resetScheduleVersionState();
       resetRepairState();
       renderScheduleTableFromState();
+      await loadScheduleVersions();
     }
   } catch (error) {
     notify(error.message, "error");
@@ -1258,6 +782,38 @@ async function runLoadLargeDemo() {
   }
 }
 
+async function runLoadPilotDemo() {
+  const btn = $("load-pilot-demo-btn");
+  setLoading(btn, true, "Chargement en cours...");
+  const startedAt = performance.now();
+  try {
+    const res = await api("/schedule/load-pilot-demo", { method: "POST" });
+    scheduleState.schedule = {};
+    scheduleState.hasGeneratedSchedule = false;
+    scheduleState.scheduleOptions = [];
+    scheduleState.selectedOptionId = null;
+    scheduleState.latestMetrics = null;
+    scheduleState.scheduleVersions = [];
+    resetScheduleVersionState();
+    resetRepairState();
+    renderScheduleOptions();
+    renderScheduleVersions();
+    renderScheduleTableFromState();
+
+    await refresh();
+    const stats = res.stats || {};
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    $("demo-summary").textContent = `Démo pilote chargée : ${stats.classes || 0} classes, ${stats.teachers || 0} professeurs, contraintes réalistes (${elapsedMs} ms).`;
+    renderGenerationBanner("Démo pilote réaliste prête. Lancez la génération pour produire les options.", "success");
+    notify("Démo pilote chargée avec succès.");
+  } catch (error) {
+    renderGenerationBanner(`Erreur de chargement démo pilote : ${error.message}`, "error");
+    notify(error.message, "error");
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
 async function runGenerateSchedule() {
   if (scheduleState.isGenerating) {
     notify("Génération déjà en cours.", "info");
@@ -1275,6 +831,7 @@ async function runGenerateSchedule() {
     renderQualityMetrics(res);
     await refreshScheduleTable();
     scheduleState.hasGeneratedSchedule = true;
+    scheduleState.scheduleVersion.source = "generation";
     renderGenerationBanner(`Dernière génération réussie le ${new Date().toLocaleString("fr-FR")}.`, "success");
     notify(res.message || "Emploi du temps généré avec succès");
   } catch (error) {
@@ -1422,8 +979,18 @@ function bindForms() {
   $("generate-btn").addEventListener("click", runGenerateSchedule);
   $("generate-btn-secondary").addEventListener("click", runGenerateSchedule);
   $("load-demo-btn").addEventListener("click", () => runAction("load-demo-btn", "/schedule/load-demo", "Chargement..."));
+  $("load-pilot-demo-btn").addEventListener("click", runLoadPilotDemo);
   $("load-large-demo-btn").addEventListener("click", runLoadLargeDemo);
   $("clear-btn").addEventListener("click", () => runAction("clear-btn", "/schedule/clear", "Suppression..."));
+  $("refresh-versions-btn").addEventListener("click", async () => {
+    const btn = $("refresh-versions-btn");
+    setLoading(btn, true, "Rafraîchissement...");
+    try {
+      await loadScheduleVersions();
+    } finally {
+      setLoading(btn, false);
+    }
+  });
   bindExport("export-json-btn", "json");
   bindExport("export-csv-btn", "csv");
   bindExport("export-pdf-btn", "pdf");

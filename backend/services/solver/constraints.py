@@ -228,6 +228,7 @@ def evaluate_quality(
         input_data.subjects,
         input_data.slots,
         input_data.conditions,
+        input_data.learning_groups,
     )
     hard_conflicts = (
         int(hard.get("class_conflicts", 0))
@@ -248,7 +249,7 @@ def evaluate_quality(
         + compactness_penalty
         + stability_penalty
     )
-    required_sessions = max(1, len(input_data.classes) * sum(subject_hours.values()))
+    required_sessions = max(1, len(schedule and [cell for entries in schedule.values() for cell in entries.values()] or []))
     normalized_penalty_points = int((total_penalty * 100) / max(1, required_sessions * 20))
     total_score = max(0, min(100, 100 - normalized_penalty_points))
     return {

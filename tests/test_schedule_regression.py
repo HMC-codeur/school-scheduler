@@ -1,3 +1,5 @@
+from time import perf_counter
+
 import pytest
 
 pytest.importorskip('httpx')
@@ -35,6 +37,37 @@ def test_load_large_demo_and_generate_exposes_metrics() -> None:
     assert payload.get('required_sessions') is not None
     assert payload.get('scheduled_sessions') is not None
     assert payload.get('generation_time_ms') is not None
+
+
+def test_load_pilot_demo_generate_options_and_diagnostics_are_stable() -> None:
+    load_response = client.post('/schedule/load-pilot-demo')
+    assert load_response.status_code == 200
+    stats = load_response.json().get('stats', {})
+    assert 10 <= stats.get('classes', 0) <= 20
+    assert stats.get('teachers', 0) >= 20
+    assert stats.get('conditions', 0) >= 8
+
+    diagnosis = client.get('/schedule/diagnose').json()
+    assert diagnosis["can_generate"] is True
+    assert diagnosis["stats"]["classes"] == stats["classes"]
+    assert diagnosis["stats"]["required_sessions"] > 0
+
+    started_at = perf_counter()
+    generate_response = client.post('/schedule/generate')
+    elapsed_ms = int((perf_counter() - started_at) * 1000)
+    payload = generate_response.json()
+    assert generate_response.status_code == 200
+    assert payload["success"] is True
+    assert payload["quality_score"] is not None
+    assert payload["conflicts_count"] == 0
+    assert payload["scheduled_sessions"] == payload["required_sessions"]
+    assert payload["generation_time_ms"] is not None
+    assert elapsed_ms < 60_000
+
+    options = client.get('/schedule/options').json()
+    assert 1 <= len(options) <= 3
+    assert all(option.get("quality_score") is not None for option in options)
+    assert any(option.get("selected") for option in options)
 
 
 def test_clear_resets_schedule() -> None:
