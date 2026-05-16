@@ -6,6 +6,10 @@ __pycache__/
 *.sqlite3
 *.db
 backend/benchmarks/results/
+node_modules/
+frontend-react/dist/
+frontend-react/.certs/
+frontend-react/.env.local
 
 # Temporary runtime artifacts
 .tmp/
