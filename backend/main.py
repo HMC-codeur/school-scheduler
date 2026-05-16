@@ -49,5 +49,10 @@ app.include_router(schedule_router)
 app.include_router(time_settings_router)
 app.include_router(platform_router)
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+ROOT_DIR = Path(__file__).resolve().parent.parent
+REACT_FRONTEND_DIR = ROOT_DIR / "frontend-react" / "dist"
+LEGACY_FRONTEND_DIR = ROOT_DIR / "frontend"
+
+FRONTEND_DIR = REACT_FRONTEND_DIR if REACT_FRONTEND_DIR.exists() else LEGACY_FRONTEND_DIR
+
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
