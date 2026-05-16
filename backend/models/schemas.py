@@ -254,6 +254,101 @@ class ScheduleCell(BaseModel):
     session_id: str | None = None
 
 
+class ImportWarning(BaseModel):
+    code: str
+    message: str
+    row: int | None = None
+    column: int | None = None
+    value: Any | None = None
+    lesson_index: int | None = None
+
+
+class ImportError(BaseModel):
+    code: str
+    message: str
+    row: int | None = None
+    column: int | None = None
+    value: Any | None = None
+    lesson_index: int | None = None
+
+
+class ImportedLesson(BaseModel):
+    day: str
+    slot: str
+    class_name: str | None = None
+    subject: str | None = None
+    teacher: str | None = None
+    room: str | None = None
+    row: int | None = None
+    column: int | None = None
+    raw: str
+    day_key: str | None = None
+    slot_label: str | None = None
+    slot_key: str | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    session_id: str | None = None
+    normalized: dict[str, str] = Field(default_factory=dict)
+    warnings: list[ImportWarning] = Field(default_factory=list)
+
+
+class ExcelImportPreviewResponse(BaseModel):
+    filename: str | None = None
+    days: list[str] = Field(default_factory=list)
+    slots: list[str] = Field(default_factory=list)
+    classes: list[str] = Field(default_factory=list)
+    teachers: list[str] = Field(default_factory=list)
+    subjects: list[str] = Field(default_factory=list)
+    rooms: list[str] = Field(default_factory=list)
+    lessons: list[ImportedLesson] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warning_details: list[ImportWarning] = Field(default_factory=list)
+    error_details: list[ImportError] = Field(default_factory=list)
+    can_commit: bool = False
+    import_id: str | None = None
+    preview_hash: str | None = None
+    sheet_name: str | None = None
+    parser_used: str | None = None
+
+
+class ExcelImportCommitRequest(BaseModel):
+    import_id: str | None = None
+    lessons: list[ImportedLesson] | None = None
+    mode: Literal["replace", "merge"] = "replace"
+    dry_run: bool = False
+    create_missing_entities: bool = True
+    selected: bool = True
+    synthesize_schedule_option: bool = True
+    fail_on_conflict: bool = True
+
+    @model_validator(mode="after")
+    def require_import_source(self) -> "ExcelImportCommitRequest":
+        if not self.import_id and not self.lessons:
+            raise ValueError("import_id or lessons is required")
+        return self
+
+
+class CommitResponse(BaseModel):
+    success: bool
+    message: str
+    mode: str
+    dry_run: bool
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    created_entities: dict[str, int] = Field(default_factory=dict)
+    updated_entities: dict[str, int] = Field(default_factory=dict)
+    imported_lessons_count: int = 0
+    active_schedule_entries_count: int = 0
+    schedule_option_id: str | None = None
+    selected_schedule_option_id: str | None = None
+    schedule: dict[str, dict[str, ScheduleCell]] = Field(default_factory=dict)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    export_ready: bool = False
+    repair_ready: bool = False
+
+
 class GenerateScheduleResponse(BaseModel):
     success: bool
     message: str

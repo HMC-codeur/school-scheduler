@@ -40,6 +40,7 @@ export function ClassesPage({ data, loading, navigate, refreshData }) {
         eyebrow="ניהול"
         title="כיתות"
         description="רשימת הכיתות והשלמות נדרשות לפני בניית מערכת."
+        action={<button className="primary-button" type="button" onClick={() => navigate("classNew")}>הוסף כיתה</button>}
       />
       <section className="panel">
         <div className="section-head">

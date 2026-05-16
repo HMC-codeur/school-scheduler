@@ -21,7 +21,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -153,6 +154,13 @@ button {
   white-space: nowrap;
 }
 
+.topbar-status select {
+  min-height: 32px;
+  border: 1px solid #cad4e0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .status-dot {
   width: 9px;
   height: 9px;
@@ -229,6 +237,10 @@ button {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 20px;
+}
+
+.stat-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .stat-card,
@@ -358,13 +370,113 @@ button {
 .toolbar input,
 .toolbar select,
 .inline-form input,
-.inline-form select {
+.inline-form select,
+.stack-form input,
+.stack-form textarea,
+.panel > textarea {
   min-height: 42px;
   min-width: 220px;
   border: 1px solid #cad4e0;
   border-radius: 8px;
   padding: 0 12px;
   background: #ffffff;
+}
+
+.stack-form {
+  display: grid;
+  gap: 12px;
+}
+
+.stack-form textarea,
+.panel > textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 12px;
+}
+
+.upload-zone {
+  border: 1px dashed #9db7cc;
+  border-radius: 8px;
+  padding: 28px;
+  margin-bottom: 20px;
+  background: #ffffff;
+}
+
+.upload-zone form {
+  display: grid;
+  gap: 16px;
+}
+
+.issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.issue-card {
+  display: grid;
+  grid-template-columns: 110px 1.5fr 1fr 1fr 1.4fr;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.issue-card p {
+  margin: 0;
+  color: #526173;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.highlighted {
+  border-color: #9dcfbb;
+  background: #f3fbf7;
+}
+
+.change-row,
+.summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.change-row {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding: 10px 0;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.mini-metrics {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  color: #526173;
+}
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.wizard-steps button {
+  border: 1px solid #cad4e0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #ffffff;
+}
+
+.wizard-steps button.active {
+  border-color: #0f6b55;
+  background: #e8f3ef;
+  color: #0f6b55;
+  font-weight: 700;
 }
 
 .check-label {
@@ -625,10 +737,12 @@ th {
   }
 
   .stat-grid,
+  .stat-grid.compact,
   .card-grid,
   .room-grid,
   .group-grid,
-  .workflow {
+  .workflow,
+  .compare-grid {
     grid-template-columns: 1fr;
   }
 
@@ -645,6 +759,11 @@ th {
   }
 
   .schedule-item {
+    grid-template-columns: 1fr;
+  }
+
+  .issue-card,
+  .change-row {
     grid-template-columns: 1fr;
   }
 }

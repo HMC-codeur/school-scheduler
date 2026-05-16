@@ -1,23 +1,22 @@
 const navItems = [
-  { id: "dashboard", label: "לוח בקרה", icon: "⌂" },
-  { id: "classes", label: "כיתות", icon: "▦" },
-  { id: "teachers", label: "מורים", icon: "◇" },
-  { id: "subjects", label: "מקצועות", icon: "◫" },
-  { id: "students", label: "תלמידים", icon: "○" },
-  { id: "rooms", label: "חדרים", icon: "□" },
-  { id: "constraints", label: "אילוצים", icon: "!" },
-  { id: "generation", label: "יצירת מערכת", icon: "▶" },
-  { id: "schedule", label: "מערכת", icon: "▤" },
+  { id: "dashboard", labelKey: "dashboard", icon: "⌂" },
+  { id: "importExcel", labelKey: "importExcel", icon: "⇪" },
+  { id: "diagnostic", labelKey: "diagnostic", icon: "!" },
+  { id: "repair", labelKey: "repair", icon: "✎" },
+  { id: "compare", labelKey: "correctedSchedule", icon: "▥" },
+  { id: "exports", labelKey: "exports", icon: "↓" },
+  { id: "classes", labelKey: "data", icon: "▦" },
+  { id: "generation", labelKey: "generation", icon: "▶" },
 ];
 
-export function Sidebar({ activePage, onNavigate }) {
+export function Sidebar({ activePage, onNavigate, t }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <span className="brand-mark">ש</span>
+        <span className="brand-mark">AI</span>
         <div>
-          <strong>School Scheduler</strong>
-          <small>ניהול מערכת שעות</small>
+          <strong>{t.appName}</strong>
+          <small>{t.appSubtitle}</small>
         </div>
       </div>
       <nav className="nav-list" aria-label="ניווט ראשי">
@@ -29,7 +28,7 @@ export function Sidebar({ activePage, onNavigate }) {
             type="button"
           >
             <span className="nav-icon" aria-hidden="true">{item.icon}</span>
-            <span>{item.label}</span>
+            <span>{t[item.labelKey]}</span>
           </button>
         ))}
       </nav>

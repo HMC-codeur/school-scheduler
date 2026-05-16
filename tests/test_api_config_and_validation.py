@@ -1,7 +1,9 @@
 import importlib
 
 import pytest
+from fastapi.testclient import TestClient
 
+from backend.main import app
 from backend.models.schemas import ClassCreate, SubjectCreate, TeacherCreate
 from backend.models.schemas import Class, Subject, Teacher
 from backend.services.scheduler import SchedulerService
@@ -16,6 +18,24 @@ def test_cors_disallows_wildcard_with_credentials(monkeypatch):
         importlib.reload(backend.config)
         backend.config.get_settings.cache_clear()
         backend.config.get_settings()
+
+
+def test_vite_preflight_is_allowed_and_exports_content_disposition():
+    client = TestClient(app)
+    response = client.options(
+        "/classes",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+    get_response = client.get("/schedule/export/json", headers={"Origin": "http://localhost:5173"})
+    assert "content-disposition" in get_response.headers.get("access-control-expose-headers", "").lower()
 
 
 def test_validation_rejects_blank_name():

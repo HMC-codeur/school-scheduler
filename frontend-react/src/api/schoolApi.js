@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequest, downloadRequest } from "./client";
 
 export function getClasses() {
   return apiRequest("/classes");
@@ -26,6 +26,10 @@ export function getConditions() {
 
 export function getScheduleOptions() {
   return apiRequest("/schedule/options");
+}
+
+export function diagnoseSchedule() {
+  return apiRequest("/schedule/diagnose");
 }
 
 export function createClass(payload) {
@@ -79,6 +83,53 @@ export function loadPilotDemo() {
   return apiRequest("/schedule/load-pilot-demo", { method: "POST" });
 }
 
+export function loadRepairDemo() {
+  return apiRequest("/schedule/load-repair-demo", { method: "POST" });
+}
+
 export function clearSchedule() {
   return apiRequest("/schedule/clear", { method: "POST" });
+}
+
+export function previewExcel(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiRequest("/schedule/import/excel/preview", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export function commitExcelImport(payload) {
+  return apiRequest("/schedule/import/excel/commit", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function repairSchedule(payload) {
+  return apiRequest("/schedule/repair", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function previewRepairProposal(proposalId) {
+  return apiRequest(`/schedule/repair/proposals/${proposalId}`);
+}
+
+export function acceptRepairProposal(proposalId) {
+  return apiRequest(`/schedule/repair/proposals/${proposalId}/accept`, { method: "POST" });
+}
+
+export function rejectRepairProposal(proposalId) {
+  return apiRequest(`/schedule/repair/proposals/${proposalId}`, { method: "DELETE" });
+}
+
+export function exportSchedule(format) {
+  return downloadRequest(`/schedule/export/${format}`);
+}
+
+export function exportRepairProposalPdf(proposalId) {
+  return downloadRequest(`/schedule/repair/proposals/${proposalId}/export/pdf`);
 }

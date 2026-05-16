@@ -3,7 +3,7 @@ import { PageHeader } from "../components/PageHeader.jsx";
 import { StatCard } from "../components/StatCard.jsx";
 import { StatusBadge } from "../components/StatusBadge.jsx";
 
-export function DashboardPage({ data, loading, error, navigate }) {
+export function DashboardPage({ data, loading, error, navigate, t }) {
   const scheduleSize = Object.keys(data.schedule || {}).length;
   const checklist = [
     { label: "להוסיף כיתות", done: data.classes.length > 0 },
@@ -16,12 +16,16 @@ export function DashboardPage({ data, loading, error, navigate }) {
     <>
       <PageHeader
         eyebrow="סקירה"
-        title="לוח בקרה"
-        description="תמונה קצרה של מוכנות בית הספר לפני יצירת מערכת."
-        action={<button className="primary-button" onClick={() => navigate("generation")} type="button">ליצירת מערכת</button>}
+        title="AI Planning Repair for Israeli Schools"
+        description="Importer un planning Excel, diagnostiquer les conflits, proposer une correction et exporter un planning propre."
+        action={<button className="primary-button" onClick={() => navigate("importExcel")} type="button">{t.importExcel}</button>}
       />
       <section className="quick-actions" aria-label="פעולות מהירות">
-        <button className="secondary-button" onClick={() => navigate("classes")} type="button">הוסף כיתה</button>
+        <button className="secondary-button" onClick={() => navigate("importExcel")} type="button">{t.importExcel}</button>
+        <button className="secondary-button" onClick={() => navigate("diagnostic")} type="button">{t.diagnostic}</button>
+        <button className="secondary-button" onClick={() => navigate("repair")} type="button">{t.repair}</button>
+        <button className="secondary-button" onClick={() => navigate("exports")} type="button">{t.exports}</button>
+        <button className="secondary-button" onClick={() => navigate("classNew")} type="button">{t.addClass}</button>
         <button className="secondary-button" onClick={() => navigate("teachers")} type="button">הוסף מורה</button>
         <button className="secondary-button" onClick={() => navigate("subjects")} type="button">הוסף מקצוע</button>
         <button className="secondary-button" onClick={() => navigate("generation")} type="button">הוסף שעה</button>
@@ -60,8 +64,8 @@ export function DashboardPage({ data, loading, error, navigate }) {
       {!loading && !data.classes.length ? (
         <EmptyState
           title="עדיין אין נתוני בית ספר"
-          description="אפשר לטעון דמו מהמסך של יצירת המערכת, בלי לשנות את מנוע השרת."
-          action={<button className="secondary-button" onClick={() => navigate("generation")} type="button">פתח יצירת מערכת</button>}
+          description="אפשר להתחיל מיבוא Excel או לטעון דמו תיקון במסך היבוא."
+          action={<button className="secondary-button" onClick={() => navigate("importExcel")} type="button">{t.importExcel}</button>}
         />
       ) : null}
     </>

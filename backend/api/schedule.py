@@ -14,7 +14,10 @@ from fastapi.responses import Response
 from backend.data.store import get_store
 from backend.data.memory_store import MemoryStore
 from backend.models.schemas import (
+    CommitResponse,
     Condition,
+    ExcelImportCommitRequest,
+    ExcelImportPreviewResponse,
     GenerateScheduleResponse,
     RepairChangedItem,
     RepairProposalPreviewResponse,
@@ -32,7 +35,7 @@ from backend.services.solver.ortools_solver import ORToolsSolver
 from backend.services.solver.repair import repair_schedule
 from backend.services.solver.models import SolverAssignment
 from backend.services.solver.stability import schedule_with_session_ids
-from backend.services.excel_import import preview_excel_schedule
+from backend.services.excel_import import active_schedule_diagnostics, commit_excel_import, excel_import_max_bytes, preview_excel_schedule
 from backend.api.platform import build_repair_report_pdf
 
 
@@ -513,9 +516,11 @@ def _extract_excel_upload(body: bytes, content_type: str) -> tuple[str | None, b
     return None, b""
 
 
-@router.post("/import/excel/preview", response_model=dict)
+@router.post("/import/excel/preview", response_model=ExcelImportPreviewResponse)
 async def import_excel_preview(request: Request) -> dict:
     body = await request.body()
+    if len(body) > excel_import_max_bytes() + 8192:
+        raise HTTPException(status_code=413, detail=f"Excel file is too large. Limit is {excel_import_max_bytes()} bytes.")
     filename, content = _extract_excel_upload(body, request.headers.get("content-type", ""))
     preview = preview_excel_schedule(content, filename=filename)
     if preview.get("errors"):
@@ -523,9 +528,34 @@ async def import_excel_preview(request: Request) -> dict:
     return preview
 
 
+@router.post("/import/excel/commit", response_model=CommitResponse)
+def import_excel_commit(
+    payload: ExcelImportCommitRequest,
+    store: MemoryStore = Depends(get_store),
+) -> CommitResponse:
+    previous_schedule = store.schedule
+    response = commit_excel_import(payload, store)
+    if response.success and not response.dry_run:
+        _record_schedule_version(
+            store,
+            source="excel_import",
+            schedule=store.schedule,
+            option_id=response.schedule_option_id,
+            previous_schedule=previous_schedule,
+            metadata={
+                "mode": response.mode,
+                "imported_lessons_count": response.imported_lessons_count,
+                "message": response.message,
+            },
+        )
+    if not response.success:
+        raise HTTPException(status_code=400, detail=response.model_dump(mode="json"))
+    return response
+
+
 @router.get("/diagnose", response_model=dict)
 def diagnose_schedule(store: MemoryStore = Depends(get_store)) -> dict:
-    return diagnose_schedule_generation(
+    diagnostics = diagnose_schedule_generation(
         store.classes,
         store.teachers,
         store.subjects,
@@ -534,6 +564,16 @@ def diagnose_schedule(store: MemoryStore = Depends(get_store)) -> dict:
         store.time_settings,
         store.learning_groups,
     )
+    active = active_schedule_diagnostics(
+        store.schedule,
+        store.classes,
+        store.teachers,
+        store.subjects,
+        store.slots,
+    )
+    diagnostics["active_schedule"] = active
+    diagnostics["import_diagnostics"] = active
+    return diagnostics
 
 
 @router.post("/generate", response_model=GenerateScheduleResponse)
@@ -947,6 +987,20 @@ def load_large_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
 def load_pilot_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
     stats = store.load_pilot_demo_data()
     return {"message": "Pilot demo data loaded.", "stats": stats}
+
+
+@router.post("/load-repair-demo", response_model=dict)
+def load_repair_demo_data(store: MemoryStore = Depends(get_store)) -> dict:
+    stats = store.load_pilot_demo_data()
+    return {
+        "message": "Repair demo data loaded.",
+        "stats": stats,
+        "scenario": {
+            "positioning": "AI Planning Repair for Israeli Schools",
+            "expected_issues": 12,
+            "notes": "Frontend presents the commercial repair scenario; backend data uses the existing pilot dataset.",
+        },
+    }
 
 
 @router.post("/load-learning-groups-demo", response_model=dict)
