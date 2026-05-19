@@ -1,0 +1,42 @@
+{
+  "pack": "school-scheduler V2 Excel import tests",
+  "purpose": "Tester l'import intelligent Excel: sheet detection, messy columns, Hebrew availability, missing/duplicate data, diagnostics, minimal human corrections.",
+  "files": [
+    {
+      "filename": "00_MANIFEST_pack_tests_v2.xlsx",
+      "contains_expected_import_sheet": false
+    },
+    {
+      "filename": "01_planning_ecole_reel_bordelique.xlsx",
+      "contains_expected_import_sheet": true
+    },
+    {
+      "filename": "02_besoins_horaires_melanges.xlsx",
+      "contains_expected_import_sheet": true
+    },
+    {
+      "filename": "03_planning_rempli_grille.xlsx",
+      "contains_expected_import_sheet": true
+    },
+    {
+      "filename": "04_disponibilites_profs_hebreu.xlsx",
+      "contains_expected_import_sheet": true
+    },
+    {
+      "filename": "05_contraintes_planning_libres.xlsx",
+      "contains_expected_import_sheet": true
+    },
+    {
+      "filename": "06_listes_melangees.xlsx",
+      "contains_expected_import_sheet": true
+    }
+  ],
+  "recommended_eval": [
+    "Run backend.evals.excel.eval_runner or analyze_excel_content() for each workbook.",
+    "Assert no crash.",
+    "Assert classified sheet types are correct.",
+    "Assert blocking/warning diagnostics are readable.",
+    "Assert human correction questions are minimal and targeted.",
+    "Compare extracted records to EXPECTED_IMPORT sheet as a loose oracle."
+  ]
+}
