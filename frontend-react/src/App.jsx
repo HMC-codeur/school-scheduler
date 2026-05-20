@@ -17,7 +17,8 @@ import { RepairPage } from "./pages/RepairPage.jsx";
 import { ComparePage } from "./pages/ComparePage.jsx";
 import { ExportsPage } from "./pages/ExportsPage.jsx";
 import { ClassNewPage } from "./pages/ClassNewPage.jsx";
-import { getClasses, getConditions, getSchedule, getSlots, getSubjects, getTeachers } from "./api/schoolApi.js";
+import { getApiDebugSnapshot, setApiDebugListener } from "./api/client.js";
+import { checkHealth, getClasses, getConditions, getSchedule, getSlots, getSubjects, getTeachers } from "./api/schoolApi.js";
 import { getDirection, translations } from "./translations.js";
 
 const pageMap = {
@@ -74,6 +75,21 @@ export default function App() {
   const [language, setLanguage] = useState("he");
   const [importPreview, setImportPreview] = useState(null);
   const [activeProposal, setActiveProposal] = useState(null);
+  const [backendStatus, setBackendStatus] = useState("unknown");
+  const [apiDebug, setApiDebug] = useState(() => getApiDebugSnapshot());
+
+  const checkBackendHealth = async () => {
+    setBackendStatus("checking");
+    try {
+      const result = await checkHealth();
+      const status = result?.status || result?.data?.status;
+      const connected = status === "ok" || (result?.ok === true && result?.data?.status === "ok");
+      if (!connected) throw new Error(`Réponse /health inattendue: ${JSON.stringify(result || {})}`);
+      setBackendStatus("connected");
+    } catch (err) {
+      setBackendStatus("error");
+    }
+  };
 
   const refreshData = async () => {
     setLoading(true);
@@ -96,7 +112,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    const unsubscribe = setApiDebugListener(setApiDebug);
+    checkBackendHealth();
     refreshData();
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -145,6 +164,8 @@ export default function App() {
       activePage={activePage}
       onNavigate={navigate}
       error={error}
+      backendStatus={backendStatus}
+      apiDebug={apiDebug}
       language={language}
       setLanguage={setLanguage}
       direction={direction}

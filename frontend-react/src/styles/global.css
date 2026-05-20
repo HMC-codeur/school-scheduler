@@ -161,6 +161,24 @@ button {
   background: #ffffff;
 }
 
+.api-debug-panel {
+  margin-top: 10px;
+  max-width: 760px;
+  color: #526173;
+  font-size: 13px;
+}
+
+.api-debug-panel summary {
+  cursor: pointer;
+  color: #0f6b55;
+  font-weight: 700;
+}
+
+.api-debug-panel p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
 .status-dot {
   width: 9px;
   height: 9px;

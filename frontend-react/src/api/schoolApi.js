@@ -28,6 +28,10 @@ export function getScheduleOptions() {
   return apiRequest("/schedule/options");
 }
 
+export function checkHealth() {
+  return apiRequest("/health");
+}
+
 export function diagnoseSchedule() {
   return apiRequest("/schedule/diagnose");
 }
