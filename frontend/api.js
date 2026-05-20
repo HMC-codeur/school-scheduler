@@ -5,16 +5,24 @@ const API_CONFIG = {
 
 function getApiBaseUrl() {
   const override = window.SCHOOL_SCHEDULER_API_URL || new URLSearchParams(window.location.search).get("api");
-  if (override) return normalizeApiBaseUrl(override);
+  if (override) {
+    const baseUrl = normalizeApiBaseUrl(override);
+    console.log("API_BASE_URL", baseUrl);
+    return baseUrl;
+  }
 
   const host = window.location.hostname;
   const port = window.location.port;
   const isLocalHost = ["localhost", "127.0.0.1", ""].includes(host);
   const isLocalFrontend = isLocalHost || ["3000", "5173", "5174", "5500"].includes(port);
+  const productionHost = new URL(API_CONFIG.production).hostname;
 
-  if (isLocalFrontend) return API_CONFIG.local;
-  if (window.location.origin === API_CONFIG.production) return window.location.origin;
-  return API_CONFIG.production;
+  let baseUrl = API_CONFIG.production;
+  if (isLocalFrontend) baseUrl = API_CONFIG.local;
+  else if (host.includes(productionHost)) baseUrl = API_CONFIG.production;
+  else if (window.location.origin === API_CONFIG.production) baseUrl = window.location.origin;
+  console.log("API_BASE_URL", baseUrl);
+  return baseUrl;
 }
 
 function normalizeApiBaseUrl(url) {
@@ -84,7 +92,9 @@ async function apiFetch(path, requestOptions) {
 
 async function api(path, requestOptions) {
   const response = await apiFetch(path, requestOptions);
-  return parseApiPayload(response);
+  const payload = await parseApiPayload(response);
+  updateApiDebug({ lastResponse: formatApiDebugPayload(payload) });
+  return payload;
 }
 
 function sanitizeExcelError(message) {
@@ -115,4 +125,15 @@ function classifyNetworkError(error) {
 function updateApiDebug(patch = {}) {
   scheduleState.apiDebug = { ...(scheduleState.apiDebug || {}), apiBaseUrl: getApiBaseUrl(), ...patch };
   if (typeof renderApiDebugPanel === "function") renderApiDebugPanel();
+}
+
+function formatApiDebugPayload(payload) {
+  if (payload === undefined || payload === null) return "";
+  if (typeof payload === "string") return payload;
+  try {
+    const text = JSON.stringify(payload);
+    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+  } catch (error) {
+    return String(payload);
+  }
 }

@@ -29,6 +29,7 @@ function renderApiDebugPanel() {
   setText("api-debug-status", debug.status || scheduleState.backendStatus || "unknown");
   setText("api-debug-endpoint", debug.lastEndpoint || "");
   setText("api-debug-error", debug.lastError || "");
+  setText("api-debug-health-response", debug.healthResponse || "");
 }
 
 async function checkBackendHealth() {
@@ -37,11 +38,18 @@ async function checkBackendHealth() {
   const startedAt = Date.now();
   updateApiDebug({ apiBaseUrl: getApiBaseUrl(), status: "checking", lastEndpoint: "/health", lastError: "" });
   try {
-    await api("/health");
+    const response = await apiFetch("/health");
+    const result = response instanceof Response ? await parseApiPayload(response) : response;
+    const status = result?.status || result?.data?.status;
+    const connected = status === "ok" || (result?.ok === true && result?.data?.status === "ok");
+    updateApiDebug({ healthResponse: formatApiDebugPayload(result) });
+    if (!connected) {
+      throw new Error(`Réponse /health inattendue: ${formatApiDebugPayload(result) || "vide"}`);
+    }
     scheduleState.backendStatus = "ok";
     pill.textContent = "Connecté au serveur";
     pill.className = "status-pill status-success";
-    updateApiDebug({ status: "connected", lastError: "" });
+    updateApiDebug({ status: "connected", lastEndpoint: "/health", lastError: "" });
   } catch (error) {
     scheduleState.backendStatus = "error";
     const slow = Date.now() - startedAt > 7000;

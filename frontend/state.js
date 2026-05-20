@@ -18,6 +18,8 @@ const scheduleState = {
     status: "unknown",
     lastEndpoint: "",
     lastError: "",
+    lastResponse: "",
+    healthResponse: "",
   },
   latestMetrics: null,
   latestDiagnosis: null,
