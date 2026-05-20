@@ -325,6 +325,72 @@ button:focus-visible {
   align-items: end;
 }
 
+.import-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.import-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.import-summary-card span {
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.import-summary-card strong {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.mapping-suggestions {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mapping-suggestions h4 {
+  margin: 0;
+}
+
+.mapping-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
+.mapping-block summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.mapping-block ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.technical-json {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: .78rem;
+  white-space: pre-wrap;
+}
+
 .data-forms {
   align-items: start;
 }
@@ -770,6 +836,17 @@ td.repair-moved {
   font-weight: 850;
 }
 
+.intelligence-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.intelligence-columns h4 {
+  margin: 0 0 10px;
+  font-size: .95rem;
+}
+
 .toast {
   position: fixed;
   right: 18px;
@@ -787,6 +864,31 @@ td.repair-moved {
 .toast.error { background: var(--danger); }
 .hidden { display: none; }
 
+.api-debug-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 12;
+  width: min(360px, calc(100vw - 32px));
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .94);
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .12);
+  font-size: .78rem;
+}
+
+.api-debug-panel summary {
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.api-debug-panel p {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar {
@@ -800,6 +902,7 @@ td.repair-moved {
   .sidebar-footer { display: none; }
   .topbar { flex-direction: column; }
   .top-actions button { flex: 1 1 150px; }
+  .intelligence-columns { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {

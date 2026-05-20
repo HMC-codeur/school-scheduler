@@ -16,6 +16,8 @@
         <nav class="side-nav">
           <button class="nav-link active" type="button" data-view="dashboard-view">Dashboard</button>
           <button class="nav-link" type="button" data-view="data-view">Données</button>
+          <button class="nav-link" type="button" data-view="import-view">Import Excel</button>
+          <button class="nav-link" type="button" data-view="import-intelligence-view">Import Intelligence</button>
           <button class="nav-link" type="button" data-view="conditions-view">Conditions</button>
           <button class="nav-link" type="button" data-view="generation-view">Génération</button>
           <button class="nav-link" type="button" data-view="results-view">Résultats</button>
@@ -28,6 +30,13 @@
       </aside>
 
       <main class="workspace">
+        <details class="api-debug-panel" id="api-debug-panel">
+          <summary>API</summary>
+          <p>URL: <span id="api-debug-url">-</span></p>
+          <p>Status: <span id="api-debug-status">-</span></p>
+          <p>Dernier appel: <span id="api-debug-endpoint">-</span></p>
+          <p>Erreur: <span id="api-debug-error">-</span></p>
+        </details>
         <header class="topbar">
           <div>
             <p class="eyebrow">Dashboard de planification</p>
@@ -141,6 +150,96 @@
             <article class="panel data-card"><h3>Matières</h3><ul id="subjects-list"></ul></article>
             <article class="panel data-card"><h3>Professeurs</h3><ul id="teachers-list"></ul></article>
             <article class="panel data-card"><h3>Créneaux</h3><ul id="slots-list"></ul></article>
+          </section>
+        </section>
+
+        <section class="view-section" id="import-view" data-title="Import Excel" data-subtitle="Analysez un fichier Excel avec le pipeline MVP avant tout import contrôlé.">
+          <section class="panel">
+            <form id="excel-import-form" class="forms-grid compact-grid">
+              <label for="excel-import-file">Fichier Excel<input id="excel-import-file" type="file" accept=".xlsx,.xlsm" required /></label>
+              <label for="excel-sheet-name">Feuille optionnelle<input id="excel-sheet-name" placeholder="Ex: Planning" /></label>
+              <label for="excel-debug-compare">Debug v1/v2<input id="excel-debug-compare" type="checkbox" /></label>
+              <button id="excel-analyze-btn" class="primary" type="submit">Analyser le fichier</button>
+              <button id="excel-preview-btn" type="button">Preview ancien planning</button>
+            </form>
+            <p id="excel-import-status" class="generation-status">Aucun fichier analysé.</p>
+          </section>
+          <section class="panel">
+            <h3>Ajuster la lecture de l'Excel</h3>
+            <div class="forms-grid compact-grid">
+              <label for="excel-layout-type">Format<select id="excel-layout-type">
+                <option value="auto">Auto</option>
+                <option value="tabular">Tableau classique</option>
+                <option value="grid_days_columns">Grille : jours en haut</option>
+                <option value="grid_days_rows">Grille : jours à gauche</option>
+              </select></label>
+              <label for="excel-header-row">Ligne d'en-tête<input id="excel-header-row" inputmode="numeric" placeholder="Ex: 5" /></label>
+              <label for="excel-day-row">Ligne des jours<input id="excel-day-row" inputmode="numeric" placeholder="Ex: 1" /></label>
+              <label for="excel-time-column">Colonne des horaires<input id="excel-time-column" placeholder="Ex: A ou 1" /></label>
+              <label for="excel-day-column">Colonne des jours<input id="excel-day-column" placeholder="Ex: A ou 1" /></label>
+              <label for="excel-time-row">Ligne des horaires<input id="excel-time-row" inputmode="numeric" placeholder="Ex: 1" /></label>
+            </div>
+            <small class="hint">Laissez en Auto pour la détection automatique. Utilisez ces champs si l'analyse propose des lignes ou colonnes candidates.</small>
+          </section>
+          <section class="panel">
+            <h3>Analyse du fichier</h3>
+            <div id="excel-analysis-summary" class="import-summary-grid"></div>
+            <div id="excel-analysis-messages" class="diagnostics-details"></div>
+            <div class="actions">
+              <button id="excel-mvp-commit-btn" type="button" disabled hidden>Importer les données</button>
+            </div>
+            <p id="excel-mvp-commit-summary" class="hint"></p>
+            <div id="excel-mapping-suggestions" class="mapping-suggestions"></div>
+            <details id="excel-technical-details" class="score-technical-details">
+              <summary>Détails techniques</summary>
+              <pre id="excel-technical-json" class="technical-json">{}</pre>
+            </details>
+          </section>
+          <section class="panel">
+            <div class="section-heading">
+              <div>
+                <h3>Preview des cours</h3>
+                <p id="excel-preview-summary" class="hint">Preview legacy optionnelle. L'analyse MVP ci-dessus lit toutes les lignes détectées.</p>
+              </div>
+              <div class="actions">
+                <button id="excel-commit-replace-btn" type="button" disabled>Commit Replace</button>
+                <button id="excel-commit-merge-btn" type="button" disabled>Commit Merge</button>
+                <button id="excel-dry-run-btn" type="button" disabled>Dry Run</button>
+              </div>
+            </div>
+            <div id="excel-preview-messages" class="diagnostics-details"></div>
+            <div class="table-wrap"><table id="excel-preview-table"></table></div>
+          </section>
+        </section>
+
+        <section class="view-section" id="import-intelligence-view" data-title="Import Intelligence" data-subtitle="Analyse prudente des fichiers scolaires chaotiques avant application.">
+          <section class="panel">
+            <form id="import-intelligence-form" class="forms-grid compact-grid">
+              <label for="import-intelligence-file">Fichier scolaire<input id="import-intelligence-file" type="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf,.png,.jpg,.jpeg" required /></label>
+              <button id="import-intelligence-analyze-btn" class="primary" type="submit">Analyser</button>
+              <button id="import-intelligence-apply-btn" type="button" disabled>Appliquer les données</button>
+              <button id="import-intelligence-clear-btn" type="button">Ne pas appliquer</button>
+            </form>
+            <p id="import-intelligence-status" class="generation-status">Aucun fichier analysé.</p>
+          </section>
+          <section class="panel">
+            <h3>Ce que le système a compris</h3>
+            <div id="import-intelligence-summary" class="import-summary-grid"></div>
+            <div class="intelligence-columns">
+              <article>
+                <h4>Feuilles détectées</h4>
+                <div id="import-intelligence-sheets" class="diagnostics-details"></div>
+              </article>
+              <article>
+                <h4>Données reconnues</h4>
+                <div id="import-intelligence-preview" class="diagnostics-details"></div>
+              </article>
+            </div>
+          </section>
+          <section class="panel">
+            <h3>Points à vérifier</h3>
+            <div id="import-intelligence-review" class="diagnostics-details"></div>
+            <div id="import-intelligence-diagnostics" class="diagnostics-details"></div>
           </section>
         </section>
 

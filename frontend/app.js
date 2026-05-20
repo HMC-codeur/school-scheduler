@@ -19,20 +19,42 @@ function initializeNavigation() {
   setActiveView(scheduleState.activeView);
 }
 
-async function refreshBackendStatus() {
+function renderApiDebugPanel() {
+  const debug = scheduleState.apiDebug || {};
+  const setText = (id, value) => {
+    const el = $(id);
+    if (el) el.textContent = value || "-";
+  };
+  setText("api-debug-url", debug.apiBaseUrl || (typeof getApiBaseUrl === "function" ? getApiBaseUrl() : ""));
+  setText("api-debug-status", debug.status || scheduleState.backendStatus || "unknown");
+  setText("api-debug-endpoint", debug.lastEndpoint || "");
+  setText("api-debug-error", debug.lastError || "");
+}
+
+async function checkBackendHealth() {
   const pill = $("backend-status-pill");
   if (!pill) return;
+  const startedAt = Date.now();
+  updateApiDebug({ apiBaseUrl: getApiBaseUrl(), status: "checking", lastEndpoint: "/health", lastError: "" });
   try {
     await api("/health");
     scheduleState.backendStatus = "ok";
-    pill.textContent = "Backend connecté";
+    pill.textContent = "Connecté au serveur";
     pill.className = "status-pill status-success";
-  } catch (_) {
+    updateApiDebug({ status: "connected", lastError: "" });
+  } catch (error) {
     scheduleState.backendStatus = "error";
-    pill.textContent = "Backend indisponible";
+    const slow = Date.now() - startedAt > 7000;
+    const message = slow
+      ? "Le serveur Render peut être en train de se réveiller. Réessaie dans quelques secondes."
+      : error.message || "Serveur inaccessible";
+    pill.textContent = "Serveur inaccessible";
     pill.className = "status-pill status-error";
+    updateApiDebug({ status: "error", lastError: message });
   }
 }
+
+const refreshBackendStatus = checkBackendHealth;
 
 function updateDashboardMetrics(metrics = scheduleState.latestMetrics || {}) {
   const score = Number(metrics?.quality_score);
@@ -851,13 +873,9 @@ async function exportSchedule(format) {
   const path = format === "pdf" ? "/schedule/export/pdf" : format === "json" ? "/schedule/export/json" : "/schedule/export/csv";
   let response;
   try {
-    response = await fetch(path);
+    response = await apiFetch(path);
   } catch (error) {
-    throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
-  }
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.detail || "Aucun planning à exporter.");
+    throw new Error(error.message || "Aucun planning à exporter.");
   }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -869,6 +887,628 @@ async function exportSchedule(format) {
   link.remove();
   URL.revokeObjectURL(url);
   notify(`Export ${format.toUpperCase()} prêt.`);
+}
+
+async function readImportResponse(response) {
+  const payload = await response.json().catch(() => null);
+  if (response.ok) return payload || {};
+  console.error("Excel import request failed", response.status, payload);
+  const error = new Error(apiErrorMessage(payload || {}, response.status));
+  error.payload = payload;
+  error.status = response.status;
+  throw error;
+}
+
+function selectedExcelFile() {
+  const fileInput = $("excel-import-file");
+  const file = fileInput.files?.[0];
+  if (!file) {
+    throw new Error("Sélectionnez un fichier Excel.");
+  }
+  return file;
+}
+
+function excelFormData(includeSheetName = false) {
+  const file = selectedExcelFile();
+  const formData = new FormData();
+  formData.append("file", file);
+  const sheetName = $("excel-sheet-name").value.trim();
+  if (sheetName) formData.append("sheet_name", sheetName);
+  if (includeSheetName) {
+    [
+      ["layout_type", "excel-layout-type"],
+      ["header_row", "excel-header-row"],
+      ["day_row", "excel-day-row"],
+      ["day_column", "excel-day-column"],
+      ["time_row", "excel-time-row"],
+      ["time_column", "excel-time-column"],
+    ].forEach(([field, id]) => {
+      const element = $(id);
+      const value = element?.value?.trim();
+      if (value && value !== "auto") formData.append(field, value);
+    });
+  }
+  return formData;
+}
+
+async function analyzeExcelImport() {
+  const event = arguments[0];
+  if (event?.preventDefault) event.preventDefault();
+  const button = $("excel-analyze-btn");
+  setLoading(button, true, "Analyse...");
+  $("excel-import-status").textContent = "Analyse du fichier...";
+  $("excel-import-status").dataset.level = "loading";
+  try {
+    const debugCompare = $("excel-debug-compare")?.checked ? "?debug_compare=true" : "";
+    const response = await apiFetch(`/imports/excel/analyze${debugCompare}`, {
+      method: "POST",
+      body: excelFormData(false),
+    });
+    const analysis = await readImportResponse(response);
+    scheduleState.importAnalysis = analysis;
+    renderExcelAnalysis(analysis);
+    updateExcelMvpCommitControls(analysis);
+    const summary = analysis.summary || {};
+    $("excel-import-status").textContent = [
+      `Lignes lues : ${summary.total_rows_read ?? 0}`,
+      `Ligne d'en-tête détectée : ${summary.detected_header_row ?? "-"}`,
+      `Lignes de données détectées : ${summary.data_rows_detected ?? 0}`,
+      `Lignes importables : ${summary.imported_rows_count ?? 0}`,
+      `Lignes ignorées : ${summary.ignored_empty_rows ?? 0}`,
+    ].join(" · ");
+    $("excel-import-status").dataset.level = (analysis.diagnostics?.blocking || []).length ? "warning" : "success";
+    notify("Analyse terminée.");
+  } catch (error) {
+    scheduleState.importAnalysis = null;
+    const message = sanitizeExcelError(error.message);
+    renderExcelAnalysis(null, { ...error, message });
+    updateExcelMvpCommitControls(null);
+    $("excel-import-status").textContent = message;
+    $("excel-import-status").dataset.level = "error";
+    notify(message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function previewExcelImport(event) {
+  event.preventDefault();
+  const button = $("excel-preview-btn");
+
+  setLoading(button, true, "Preview...");
+  $("excel-import-status").textContent = "Lecture du fichier...";
+  $("excel-import-status").dataset.level = "loading";
+  try {
+    const response = await apiFetch("/schedule/import/excel/preview", {
+      method: "POST",
+      body: excelFormData(true),
+    });
+    const preview = await readImportResponse(response);
+    scheduleState.importPreview = preview;
+    renderExcelPreview(preview);
+    notify(preview.can_commit ? "Preview prête." : "Preview avec erreurs.", preview.can_commit ? "success" : "error");
+  } catch (error) {
+    scheduleState.importPreview = null;
+    const message = sanitizeExcelError(error.message);
+    renderExcelPreview(null, message);
+    notify(message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+function sanitizeExcelError(message) {
+  const text = String(message || "");
+  if (text.includes("expected <class") || text.includes("openpyxl.styles.fills.Fill")) {
+    return "Impossible de lire ce fichier Excel. Essayez de le réenregistrer en .xlsx depuis Excel ou Google Sheets.";
+  }
+  return text;
+}
+
+async function commitExcelMvpImport(event) {
+  const button = event?.currentTarget || $("excel-mvp-commit-btn");
+  const analysis = scheduleState.importAnalysis;
+  if (!analysis?.import_id) {
+    notify("Lancez une analyse avant l'import.", "error");
+    return;
+  }
+  setLoading(button, true, "Import...");
+  $("excel-import-status").textContent = "Import des données analysées...";
+  $("excel-import-status").dataset.level = "loading";
+  try {
+    const response = await apiFetch(`/imports/excel/${encodeURIComponent(analysis.import_id)}/commit`, {
+      method: "POST",
+    });
+    const payload = await readImportResponse(response);
+    const summary = payload.summary || {};
+    const message = `${summary.classes_added ?? 0} classes ajoutées, ${summary.teachers_added ?? 0} professeurs ajoutés, ${summary.subjects_added ?? 0} matières ajoutées, ${summary.requirements_added ?? 0} besoins horaires ajoutés.`;
+    $("excel-mvp-commit-summary").textContent = message;
+    $("excel-import-status").textContent = message;
+    $("excel-import-status").dataset.level = "success";
+    notify("Import MVP terminé.");
+    await refresh();
+  } catch (error) {
+    const detail = error.payload?.detail || {};
+    const message = detail.message || error.message;
+    $("excel-mvp-commit-summary").textContent = message;
+    $("excel-import-status").textContent = message;
+    $("excel-import-status").dataset.level = "error";
+    notify(message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+function intelligenceFormData() {
+  const formData = new FormData();
+  const file = $("import-intelligence-file")?.files?.[0];
+  if (file) formData.append("file", file);
+  return formData;
+}
+
+async function analyzeImportIntelligence(event) {
+  if (event?.preventDefault) event.preventDefault();
+  const button = $("import-intelligence-analyze-btn");
+  setLoading(button, true, "Analyse...");
+  $("import-intelligence-status").textContent = "Analyse intelligente du fichier...";
+  try {
+    const response = await apiFetch("/imports/analyze", { method: "POST", body: intelligenceFormData() });
+    const analysis = await readImportResponse(response);
+    scheduleState.importIntelligence = analysis;
+    renderImportIntelligence(analysis);
+    $("import-intelligence-status").textContent = `${analysis.status} · confiance ${Math.round((analysis.confidence || 0) * 100)}%`;
+    $("import-intelligence-apply-btn").disabled = !analysis.import_id || analysis.status === "blocked";
+    notify("Analyse intelligence terminée.");
+  } catch (error) {
+    scheduleState.importIntelligence = null;
+    renderImportIntelligence(null, error.message);
+    $("import-intelligence-status").textContent = error.message;
+    $("import-intelligence-apply-btn").disabled = true;
+    notify(error.message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function applyImportIntelligence(event) {
+  const button = event?.currentTarget || $("import-intelligence-apply-btn");
+  const analysis = scheduleState.importIntelligence;
+  if (!analysis?.import_id) {
+    notify("Lancez une analyse avant d'appliquer.", "error");
+    return;
+  }
+  setLoading(button, true, "Application...");
+  try {
+    const response = await apiFetch(`/imports/${encodeURIComponent(analysis.import_id)}/apply`, { method: "POST" });
+    const payload = await readImportResponse(response);
+    const summary = payload.summary || {};
+    $("import-intelligence-status").textContent = `${summary.classes_added ?? 0} classes, ${summary.teachers_added ?? 0} professeurs, ${summary.subjects_added ?? 0} matières appliqués.`;
+    notify("Données appliquées.");
+    await refresh();
+  } catch (error) {
+    $("import-intelligence-status").textContent = error.message;
+    notify(error.message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+function clearImportIntelligence() {
+  scheduleState.importIntelligence = null;
+  $("import-intelligence-file").value = "";
+  $("import-intelligence-apply-btn").disabled = true;
+  $("import-intelligence-status").textContent = "Analyse annulée. Aucune donnée appliquée.";
+  renderImportIntelligence(null);
+}
+
+function renderImportIntelligence(analysis, error = null) {
+  const summaryTarget = $("import-intelligence-summary");
+  const sheetsTarget = $("import-intelligence-sheets");
+  const previewTarget = $("import-intelligence-preview");
+  const reviewTarget = $("import-intelligence-review");
+  const diagnosticsTarget = $("import-intelligence-diagnostics");
+  [summaryTarget, sheetsTarget, previewTarget, reviewTarget, diagnosticsTarget].forEach((target) => { if (target) target.innerHTML = ""; });
+  if (error) {
+    diagnosticsTarget.appendChild(create("p", error, "hint"));
+    return;
+  }
+  if (!analysis) {
+    summaryTarget.appendChild(create("p", "Sélectionnez un fichier pour démarrer l'analyse.", "hint"));
+    return;
+  }
+  const summary = analysis.summary || {};
+  [
+    ["Statut", analysis.status],
+    ["Type", analysis.file_type],
+    ["Confiance", `${Math.round((analysis.confidence || 0) * 100)}%`],
+    ["Feuilles", summary.sheets_count ?? 0],
+    ["Classes", summary.detected_classes ?? 0],
+    ["Professeurs", summary.detected_teachers ?? 0],
+    ["Matières", summary.detected_subjects ?? 0],
+    ["Besoins", summary.requirements_count ?? 0],
+  ].forEach(([label, value]) => summaryTarget.appendChild(importSummaryCard(label, String(value), "muted")));
+
+  (analysis.sheet_classifications || []).forEach((sheet) => {
+    const details = create("details");
+    details.open = sheet.needs_human_review;
+    details.appendChild(create("summary", `${sheet.sheet_name} · ${sheet.sheet_type} · ${Math.round((sheet.confidence || 0) * 100)}%`));
+    details.appendChild(create("p", (sheet.reasons || []).join(" "), "hint"));
+    sheetsTarget.appendChild(details);
+  });
+
+  const normalized = analysis.normalized_preview || {};
+  ["classes", "teachers", "subjects", "requirements", "availability", "constraints"].forEach((key) => {
+    const values = normalized[key] || [];
+    const details = create("details");
+    details.open = ["classes", "teachers", "subjects", "requirements"].includes(key);
+    details.appendChild(create("summary", `${key} · ${values.length}`));
+    const list = create("ul");
+    values.slice(0, 12).forEach((item) => list.appendChild(create("li", formatIntelligenceItem(item))));
+    details.appendChild(list);
+    previewTarget.appendChild(details);
+  });
+
+  (analysis.human_review || []).forEach((item) => {
+    const details = create("details");
+    details.open = item.blocking;
+    details.appendChild(create("summary", `${item.blocking ? "Bloquant" : "À confirmer"} · ${item.question}`));
+    details.appendChild(create("p", item.recommended_value ? `Suggestion : ${item.recommended_value}` : "Validation humaine recommandée.", "hint"));
+    reviewTarget.appendChild(details);
+  });
+  if (!(analysis.human_review || []).length) reviewTarget.appendChild(create("p", "Aucune question humaine obligatoire détectée.", "hint"));
+
+  (analysis.diagnostics || []).slice(0, 20).forEach((item) => {
+    const details = create("details");
+    details.open = item.severity === "blocking" || item.severity === "error";
+    details.appendChild(create("summary", `${item.severity} · ${item.message}`));
+    details.appendChild(create("p", [item.sheet_name, item.row ? `ligne ${item.row}` : "", item.suggestion].filter(Boolean).join(" · "), "hint"));
+    diagnosticsTarget.appendChild(details);
+  });
+}
+
+function formatIntelligenceItem(item) {
+  if (item?.name) return item.name;
+  if (item?.class_name || item?.subject_name) return `${item.class_name || "Classe ?"} · ${item.subject_name || "Matière ?"} · ${item.teacher_name || "Prof ?"} · ${item.weekly_hours ?? "?"}h`;
+  if (item?.teacher_name || item?.availability) return `${item.teacher_name || "Prof ?"} · ${item.day || "Jour ?"} · ${item.time || "Horaire ?"} · ${item.availability || "?"}`;
+  if (item?.text) return item.text;
+  return JSON.stringify(item);
+}
+
+function updateExcelMvpCommitControls(analysis) {
+  const button = $("excel-mvp-commit-btn");
+  const summary = $("excel-mvp-commit-summary");
+  if (!button || !summary) return;
+  const blocking = analysis?.diagnostics?.blocking || [];
+  const canCommit = Boolean(analysis?.import_id) && blocking.length === 0;
+  button.hidden = !analysis;
+  button.disabled = !canCommit;
+  if (!analysis) {
+    summary.textContent = "";
+  } else if (blocking.length) {
+    summary.textContent = "Import bloqué tant que les diagnostics bloquants ne sont pas corrigés.";
+  } else {
+    summary.textContent = "Analyse valide. Vous pouvez importer les données.";
+  }
+}
+
+async function commitExcelImport(mode, dryRun, button) {
+  const preview = scheduleState.importPreview;
+  if (!preview?.import_id && !Array.isArray(preview?.lessons)) {
+    notify("Lancez une preview avant le commit.", "error");
+    return;
+  }
+  setLoading(button, true, dryRun ? "Simulation..." : "Commit...");
+  try {
+    const response = await api("/schedule/import/excel/commit", {
+      method: "POST",
+      body: JSON.stringify({
+        import_id: preview.import_id,
+        lessons: preview.import_id ? undefined : preview.lessons,
+        mode,
+        dry_run: dryRun,
+      }),
+    });
+    $("excel-import-status").textContent = response.message || "Import terminé.";
+    $("excel-import-status").dataset.level = response.success ? "success" : "error";
+    notify(response.message || "Import terminé.", response.success ? "success" : "error");
+    if (!dryRun && response.success) await refresh();
+  } catch (error) {
+    $("excel-import-status").textContent = error.message;
+    $("excel-import-status").dataset.level = "error";
+    notify(error.message, "error");
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+function renderExcelPreview(preview, errorMessage = "") {
+  const status = $("excel-import-status");
+  const summary = $("excel-preview-summary");
+  const messages = $("excel-preview-messages");
+  const table = $("excel-preview-table");
+  const canCommit = Boolean(preview?.can_commit);
+  ["excel-commit-replace-btn", "excel-commit-merge-btn", "excel-dry-run-btn"].forEach((id) => {
+    const btn = $(id);
+    if (btn) btn.disabled = !canCommit;
+  });
+
+  if (!preview) {
+    status.textContent = errorMessage || "Aucun fichier prévisualisé.";
+    status.dataset.level = errorMessage ? "error" : "info";
+    summary.textContent = "Sélectionnez un fichier .xlsx ou .xlsm.";
+    messages.replaceChildren();
+    table.replaceChildren();
+    return;
+  }
+
+  const counts = preview.counts || {};
+  status.textContent = preview.can_commit ? "Preview valide, commit possible." : "Preview avec erreurs, commit bloqué.";
+  status.dataset.level = preview.can_commit ? "success" : "error";
+  summary.textContent = [
+    `Fichier: ${preview.filename || "-"}`,
+    `Feuille: ${preview.sheet_name || "-"}`,
+    `Layout: ${preview.detected_layout || "-"}`,
+    `Confiance: ${preview.confidence_score != null ? Math.round(Number(preview.confidence_score) * 100) + "%" : "-"}`,
+    `Lignes: ${counts.rows_total ?? counts.lessons ?? 0}`,
+    `Leçons: ${counts.lessons_parsed ?? counts.lessons ?? 0}`,
+    "Aperçu limité: maximum 100 lignes affichées",
+    `Warnings: ${counts.warnings_count ?? (preview.warnings || []).length}`,
+    `Errors: ${counts.errors_count ?? (preview.errors || []).length}`,
+  ].join(" · ");
+
+  const warningItems = (preview.warnings || []).map((item) => create("p", item, "diagnostic-card warning"));
+  const errorItems = (preview.errors || []).map((item) => create("p", item, "diagnostic-card blocking"));
+  messages.replaceChildren(...errorItems, ...warningItems);
+  renderMappingSuggestions($("excel-mapping-suggestions"), preview.mapping_suggestions, !preview.can_commit);
+  renderExcelTechnical(preview);
+
+  const lessons = (preview.lessons || []).slice(0, 100);
+  const header = create("tr");
+  ["Ligne", "Jour", "Créneau", "Classe", "Matière", "Professeur", "Salle", "Statut"].forEach((label) => header.append(create("th", label)));
+  const rows = lessons.map((lesson) => {
+    const tr = create("tr");
+    [
+      lesson.row_index || lesson.row || "",
+      lesson.day || "",
+      lesson.slot_label || lesson.slot || "",
+      lesson.class_name || "",
+      lesson.subject_name || lesson.subject || "",
+      lesson.teacher_name || lesson.teacher || "",
+      lesson.room_name || lesson.room || "",
+      lesson.status || "ok",
+    ].forEach((value) => tr.append(create("td", String(value))));
+    return tr;
+  });
+  table.replaceChildren(header, ...rows);
+}
+
+function renderExcelAnalysis(analysis, error = null) {
+  const summary = $("excel-analysis-summary");
+  const messages = $("excel-analysis-messages");
+  const suggestions = $("excel-mapping-suggestions");
+  if (!analysis) {
+    summary.replaceChildren();
+    messages.replaceChildren(create("p", translateExcelText(error?.message) || "אין ניתוח זמין.", "diagnostic-card blocking"));
+    renderMappingSuggestions(suggestions, null, false);
+    renderExcelTechnical(error?.payload || {});
+    return;
+  }
+  const diagnostics = analysis.diagnostics || {};
+  const sheets = analysis.sheets_detected || analysis.sheet_names || [];
+  const counts = analysis.counts || {};
+  const summaryData = analysis.summary || {};
+  const entities = analysis.extracted_entities || {};
+  summary.replaceChildren(
+    importSummaryCard("שורות שנקראו", String(summaryData.total_rows_read ?? counts.rows_total ?? 0), "muted"),
+    importSummaryCard("שורת כותרת שזוהתה", summaryData.detected_header_row ? String(summaryData.detected_header_row) : "-", "muted"),
+    importSummaryCard("שורות נתונים", String(summaryData.data_rows_detected ?? summaryData.total_data_rows_detected ?? 0), "muted"),
+    importSummaryCard("שורות לייבוא", String(summaryData.imported_rows_count ?? 0), "muted"),
+    importSummaryCard("שורות שלא יובאו", String(summaryData.ignored_empty_rows ?? 0), "muted"),
+    importSummaryCard("גיליונות", sheets.length ? sheets.join(", ") : "-", "muted"),
+    importSummaryCard("כיתות", String(summaryData.classes_detected ?? (entities.classes || []).length ?? 0), "muted"),
+    importSummaryCard("מורים", String(summaryData.teachers_detected ?? (entities.teachers || []).length ?? 0), "muted"),
+    importSummaryCard("מקצועות", String(summaryData.subjects_detected ?? (entities.subjects || []).length ?? 0), "muted"),
+    importSummaryCard("דרישות שעות", String(summaryData.requirements_detected ?? (entities.requirements || []).length ?? 0), "muted"),
+    importSummaryCard("ביטחון", analysis.confidence_score != null ? `${Math.round(Number(analysis.confidence_score) * 100)}%` : "-", "muted"),
+  );
+  const blocking = diagnostics.blocking || [];
+  const warningDiagnostics = diagnostics.warnings || [];
+  const suggestionsDiagnostics = diagnostics.suggestions || [];
+  const legacyErrors = (analysis.errors || []).map((item) => ({ message: item }));
+  const legacyWarnings = (analysis.warnings || []).map((item) => ({ message: item }));
+  const status = blocking.length
+    ? create("p", "הניתוח הסתיים עם נקודות שחוסמות ייבוא.", "diagnostic-card warning")
+    : create("p", [
+      `שורות שנקראו: ${summaryData.total_rows_read ?? 0}`,
+      `שורת כותרת: ${summaryData.detected_header_row ?? "-"}`,
+      `שורות נתונים: ${summaryData.data_rows_detected ?? 0}`,
+      `שורות לייבוא: ${summaryData.imported_rows_count ?? 0}`,
+      `שורות שלא יובאו: ${summaryData.ignored_empty_rows ?? 0}`,
+    ].join(" · "), "diagnostic-card");
+  messages.replaceChildren(
+    status,
+    renderExcelV2Diagnostics(analysis),
+    ...[...blocking, ...legacyErrors].map((item) => create("p", translateExcelText(item.message || item.title || String(item)), "diagnostic-card blocking")),
+    ...[...warningDiagnostics, ...legacyWarnings].map((item) => create("p", translateExcelText(item.message || item.title || String(item)), "diagnostic-card warning")),
+    ...suggestionsDiagnostics.map((item) => create("p", translateExcelText(item.message || item.title || String(item)), "diagnostic-card")),
+    recognizedColumnsBlock(analysis.detected_columns || [], analysis.unmapped_columns || []),
+  );
+  renderMappingSuggestions(suggestions, analysis.mapping_suggestions, !analysis.can_commit);
+  prefillExcelMapping(analysis.mapping_suggestions);
+  renderExcelTechnical(analysis);
+}
+
+function renderExcelV2Diagnostics(analysis) {
+  const compare = analysis?.excel_intelligence_compare;
+  const details = document.createElement("details");
+  details.className = "mapping-block";
+  details.open = Boolean(compare);
+  details.append(create("summary", compare ? "אבחון Excel Intelligence v2: השוואה" : "אבחון Excel Intelligence v2"));
+  if (!compare) {
+    details.append(create("p", "הפעילו מצב בדיקה v1/v2 כדי להשוות סיווג בלי לשנות את ברירת המחדל.", "hint"));
+    return details;
+  }
+  const summary = compare.summary || {};
+  const list = create("ul");
+  [
+    `תוצאה ראשית: ${compare.primary_result_engine || compare.primary_mode || analysis.engine_used || "v1"}`,
+    `סוגים v1: ${(summary.v1_detected_formats || []).join(", ") || "-"}`,
+    `סוגים v2: ${(summary.v2_detected_formats || []).join(", ") || "-"}`,
+    `שיפורים: ${summary.improvements ?? 0}`,
+    `נסיגות: ${summary.regressions ?? 0}`,
+    `דרישות v1/v2: ${summary.v1_requirements ?? 0}/${summary.v2_requirements ?? 0}`,
+    `שיעורי מערכת v1/v2: ${summary.v1_scheduled_lessons ?? 0}/${summary.v2_scheduled_lessons ?? 0}`,
+    `זמינות מורים v2: ${summary.v2_availability_entries ?? 0}`,
+    `v2 כברירת מחדל: ${compare.v2_default_enabled ? "כן" : "לא"}`,
+  ].forEach((line) => list.append(create("li", line)));
+  details.append(list);
+  (compare.sheets || []).forEach((sheet) => {
+    const reasons = (sheet.v2_diagnostic_summary?.top_reasons || []).join(" · ");
+    details.append(create("p", `${sheet.sheet_name}: v1 ${sheet.v1_format || "-"} · v2 ${sheet.v2_format || "-"} · ${translateExcelText(sheet.classification_change)} · v2 ${formatExcelConfidence(sheet.v2_confidence)} · ${translateExcelText(reasons || sheet.v2_parser_selection?.reason || "-")}`, "diagnostic-card"));
+  });
+  return details;
+}
+
+function translateExcelText(text) {
+  const value = String(text || "");
+  const known = {
+    same: "ללא שינוי",
+    improved: "שיפור",
+    regressed: "נסיגה",
+    changed: "השתנה",
+    "Salle manquante.": "חסר חדר",
+    "Extraction incertaine depuis une cellule libre.": "החילוץ מתא חופשי אינו ודאי",
+    "Professeur absent ou indétectable.": "חסר מורה או שהמורה לא זוהה",
+    "LibreOffice indisponible.": "LibreOffice אינו זמין",
+    "Styles ignorés; lecture directe des valeurs XML.": "עיצוב הגיליון לא נקרא; הערכים נקראו ישירות מתוך XML",
+    "Lecture read_only: les styles et certaines métadonnées ont été ignorés.": "קריאת Excel במצב read_only: עיצוב וחלק מהמטא-דאטה לא נקראו",
+  };
+  if (known[value]) return known[value];
+  if (value.includes("Créneau approximatif généré")) return "נוצרה שעה משוערת לפי מבנה הגיליון";
+  if (value.includes("Cette feuille est lisible")) return "הגיליון קריא אבל סוגו לא זוהה בביטחון מספיק";
+  if (value.includes("Je pense que")) return value.replace("Je pense que", "נראה כי");
+  if (value.includes("Confirme que")) return value.replace("Confirme que", "אשרו כי");
+  if (value.includes("LibreOffice n'a pas pu convertir")) return "LibreOffice לא הצליח להמיר את קובץ ה-Excel";
+  if (value.includes("Avertissement lecture Excel")) return "אזהרה בקריאת קובץ Excel";
+  return value;
+}
+
+function formatExcelConfidence(value) {
+  if (value === undefined || value === null) return "-";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return `${Math.round(numeric > 1 ? numeric : numeric * 100)}%`;
+}
+
+function recognizedColumnsBlock(detectedColumns, unmappedColumns) {
+  const details = document.createElement("details");
+  details.className = "mapping-block";
+  details.open = true;
+  details.append(create("summary", `עמודות שזוהו / לא זוהו (${detectedColumns.length})`));
+  const list = create("ul");
+  detectedColumns.forEach((column) => {
+    list.append(create("li", `${column.original_name || `עמודה ${column.column_index}`} -> ${column.mapped_field || "לא זוהתה"}`));
+  });
+  if (unmappedColumns.length) {
+    list.append(create("li", `לא זוהו: ${unmappedColumns.map((column) => column.original_name).join(", ")}`));
+  }
+  details.append(list);
+  return details;
+}
+
+function prefillExcelMapping(suggestions = {}) {
+  const first = (items, key) => Array.isArray(items) && items[0] && items[0][key] ? items[0][key] : "";
+  const mappings = [
+    ["excel-sheet-name", first(suggestions.possible_sheets, "name")],
+    ["excel-day-row", first(suggestions.possible_day_rows, "row")],
+    ["excel-time-column", first(suggestions.possible_time_columns, "column")],
+    ["excel-day-column", first(suggestions.possible_day_columns, "column")],
+    ["excel-time-row", first(suggestions.possible_time_rows, "row")],
+    ["excel-header-row", first(suggestions.possible_header_rows, "row")],
+  ];
+  mappings.forEach(([id, value]) => {
+    const element = $(id);
+    if (element && !element.value && value) element.value = String(value);
+  });
+}
+
+function importSummaryCard(label, value, tone = "muted") {
+  const card = create("article", undefined, "import-summary-card");
+  card.append(create("span", label), create("strong", value), create("em", tone === "good" ? "תקין" : tone === "bad" ? "שגיאה" : "", `score-badge ${tone}`));
+  return card;
+}
+
+function formatLayoutLabel(layout) {
+  const labels = {
+    tabular: "table colonnes",
+    grid_days_columns: "grille jours en colonnes",
+    grid_days_rows: "grille jours en lignes",
+    per_class_sheet: "une feuille par classe",
+    per_teacher_sheet: "une feuille par professeur",
+    unknown: "format non reconnu",
+  };
+  return labels[layout] || layout || "-";
+}
+
+function renderMappingSuggestions(root, suggestions, shouldShow) {
+  if (!root) return;
+  if (!shouldShow || !suggestions || !Object.keys(suggestions).length) {
+    root.replaceChildren();
+    return;
+  }
+  const title = create("h4", "Suggestions de mapping");
+  const intro = create("p", suggestions.message || "Le fichier est lisible mais le format n'est pas totalement reconnu.", "hint");
+  const blocks = [
+    ["Lignes d'en-têtes possibles", suggestions.possible_header_rows],
+    ["Lignes de jours possibles", suggestions.possible_day_rows],
+    ["Colonnes de jours possibles", suggestions.possible_day_columns],
+    ["Lignes d'horaires possibles", suggestions.possible_time_rows],
+    ["Colonnes d'horaires possibles", suggestions.possible_time_columns],
+    ["Feuilles possibles", suggestions.possible_sheets],
+  ].map(([label, items]) => mappingSuggestionBlock(label, items || []));
+  root.replaceChildren(title, intro, ...blocks);
+}
+
+function mappingSuggestionBlock(label, items) {
+  const details = document.createElement("details");
+  details.className = "mapping-block";
+  details.open = Boolean(items.length);
+  details.append(create("summary", `${label} (${items.length})`));
+  if (!items.length) {
+    details.append(create("p", "Aucune suggestion détectée.", "hint"));
+    return details;
+  }
+  const list = create("ul");
+  items.slice(0, 12).forEach((item) => {
+    const parts = [];
+    if (item.sheet || item.name) parts.push(`Feuille: ${item.sheet || item.name}`);
+    if (item.row) parts.push(`Ligne: ${item.row}`);
+    if (item.column) parts.push(`Colonne: ${item.column}`);
+    if (item.value) parts.push(`Valeur: ${item.value}`);
+    if (item.density_score != null) parts.push(`Densité: ${item.density_score}`);
+    list.append(create("li", parts.join(" · ")));
+  });
+  details.append(list);
+  return details;
+}
+
+function renderExcelTechnical(payload) {
+  const target = $("excel-technical-json");
+  if (!target) return;
+  const safePayload = payload || {};
+  target.textContent = JSON.stringify(
+    {
+      diagnostics: safePayload.diagnostics,
+      detected_layout: safePayload.detected_layout,
+      confidence_score: safePayload.confidence_score,
+      excel_intelligence_compare: safePayload.excel_intelligence_compare,
+      sheets: safePayload.sheets,
+      parser_results: safePayload.parser_results,
+      detail: safePayload.detail,
+    },
+    null,
+    2,
+  );
 }
 
 function bindForms() {
@@ -964,6 +1604,24 @@ function bindForms() {
     lunch_break_start: $("lunch-break-start").value || null,
     lunch_break_end: $("lunch-break-end").value || null,
   }));
+
+  $("excel-import-file").addEventListener("change", () => {
+    scheduleState.importAnalysis = null;
+    scheduleState.importPreview = null;
+    renderExcelAnalysis(null);
+    renderExcelPreview(null);
+    updateExcelMvpCommitControls(null);
+  });
+  $("excel-analyze-btn").addEventListener("click", analyzeExcelImport);
+  $("excel-import-form").addEventListener("submit", analyzeExcelImport);
+  $("excel-preview-btn").addEventListener("click", previewExcelImport);
+  $("excel-mvp-commit-btn").addEventListener("click", commitExcelMvpImport);
+  $("excel-commit-replace-btn").addEventListener("click", (event) => commitExcelImport("replace", false, event.currentTarget));
+  $("excel-commit-merge-btn").addEventListener("click", (event) => commitExcelImport("merge", false, event.currentTarget));
+  $("excel-dry-run-btn").addEventListener("click", (event) => commitExcelImport("replace", true, event.currentTarget));
+  $("import-intelligence-form").addEventListener("submit", analyzeImportIntelligence);
+  $("import-intelligence-apply-btn").addEventListener("click", applyImportIntelligence);
+  $("import-intelligence-clear-btn").addEventListener("click", clearImportIntelligence);
 
   $("condition-type").addEventListener("change", updateConditionFieldVisibility);
   ["condition-teacher-name", "condition-class-name", "condition-subject-name", "condition-slot"].forEach((id) => $(id).addEventListener("input", buildConditionText));

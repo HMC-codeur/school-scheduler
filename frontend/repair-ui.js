@@ -271,16 +271,7 @@ async function exportRepairProposalPdf() {
   }
   setRepairActionLoading(true);
   try {
-    let response;
-    try {
-      response = await fetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
-    } catch (error) {
-      throw new Error(`Erreur réseau : ${error.message || "backend indisponible"}`);
-    }
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || "Export PDF repair indisponible.");
-    }
+    const response = await apiFetch(`/schedule/repair/proposals/${encodeURIComponent(proposalId)}/export/pdf`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
