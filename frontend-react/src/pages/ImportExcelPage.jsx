@@ -16,6 +16,11 @@ function normalizeImportResult(result) {
   const counts = asObject(safe.counts);
   const summary = asObject(safe.summary || safe.workbook_summary);
   const normalizedPreview = asObject(safe.normalized_preview || safe.preview);
+  const previewRequirements = asArray(normalizedPreview.requirements).length
+    ? asArray(normalizedPreview.requirements)
+    : asArray(normalizedPreview.lessons);
+  const previewAvailability = asArray(normalizedPreview.availability);
+  const previewConstraints = asArray(normalizedPreview.constraints);
   const normalizedSummary = Object.keys(summary).length
     ? summary
     : {
@@ -24,13 +29,17 @@ function normalizeImportResult(result) {
         subjects_count: counts.subjects || 0,
         slots_count: counts.slots || 0,
         requirements_count: counts.lessons || 0,
+        availability_count: counts.availability || 0,
+        constraints_count: counts.constraints || 0,
       };
-  const requirementsCount = Number(normalizedSummary.requirements_count ?? normalizedSummary.importable_rows ?? asArray(normalizedPreview.requirements).length ?? 0);
+  const requirementsCount = Number(normalizedSummary.requirements_count ?? normalizedSummary.importable_rows ?? previewRequirements.length ?? 0);
+  const availabilityCount = Number(normalizedSummary.availability_count ?? previewAvailability.length ?? 0);
+  const constraintsCount = Number(normalizedSummary.constraints_count ?? previewConstraints.length ?? 0);
   const classesCount = Number(normalizedSummary.classes_count ?? normalizedSummary.detected_classes ?? asArray(normalizedPreview.classes).length ?? 0);
   const teachersCount = Number(normalizedSummary.teachers_count ?? normalizedSummary.detected_teachers ?? asArray(normalizedPreview.teachers).length ?? 0);
   const subjectsCount = Number(normalizedSummary.subjects_count ?? normalizedSummary.detected_subjects ?? asArray(normalizedPreview.subjects).length ?? 0);
   const confidence = safe.global_confidence ?? safe.confidence ?? safe.confidence_score ?? null;
-  const hasImportableData = requirementsCount > 0 || classesCount > 0 || teachersCount > 0 || subjectsCount > 0;
+  const hasImportableData = requirementsCount > 0 || availabilityCount > 0 || constraintsCount > 0 || classesCount > 0 || teachersCount > 0 || subjectsCount > 0;
   const backendAllowsImport = Boolean(safe.can_apply ?? safe.can_commit);
   const canImport = backendAllowsImport && hasImportableData && Number(confidence ?? 0) > 0;
   return {
@@ -42,7 +51,12 @@ function normalizeImportResult(result) {
     can_commit: canImport,
     has_importable_data: hasImportableData,
     needs_human_review: Boolean(safe.needs_human_review) || !canImport,
-    summary: normalizedSummary,
+    summary: {
+      ...normalizedSummary,
+      requirements_count: requirementsCount,
+      availability_count: availabilityCount,
+      constraints_count: constraintsCount,
+    },
     sheet_profiles: asArray(safe.sheet_profiles),
     sheet_classifications: asArray(safe.sheet_classifications),
     diagnostics: asArray(safe.diagnostics),
@@ -61,7 +75,9 @@ function previewSummary(normalized) {
     ["כיתות", summary.classes_count ?? summary.classes ?? 0],
     ["מורים", summary.teachers_count ?? summary.teachers ?? 0],
     ["מקצועות", summary.subjects_count ?? summary.subjects ?? 0],
-    ["שעות", summary.slots_count ?? summary.slots ?? 0],
+    ["Besoins", summary.requirements_count ?? 0],
+    ["Disponibilités", summary.availability_count ?? 0],
+    ["Contraintes", summary.constraints_count ?? 0],
     ["שורות לא תקינות", asArray(normalized?.warnings).length + asArray(normalized?.errors).length + asArray(normalized?.diagnostics).length],
   ];
 }
@@ -86,15 +102,43 @@ function previewRows(normalized) {
       : asArray(normalized?.lessons);
 }
 
+function previewAvailabilityRows(normalized) {
+  return asArray(asObject(normalized?.normalized_preview).availability);
+}
+
+function previewConstraintRows(normalized) {
+  return asArray(asObject(normalized?.normalized_preview).constraints);
+}
+
+function isScheduleGridBlocked(normalized) {
+  const classifications = asArray(normalized?.sheet_classifications);
+  const diagnostics = asArray(normalized?.diagnostics);
+  return classifications.some((item) => asObject(item).sheet_type === "schedule_grid")
+    && diagnostics.some((item) => asObject(item).code === "schedule_grid_requires_review" || asObject(item).code === "no_importable_data");
+}
+
 function isEmptyImportAnalysis(normalized) {
   if (!normalized) return false;
   const summary = asObject(normalized.summary);
   const confidence = Number(normalized.global_confidence ?? 0);
   const importableRows = Number(summary.importable_rows ?? summary.requirements_count ?? 0);
+  const availabilityCount = Number(summary.availability_count ?? 0);
+  const constraintsCount = Number(summary.constraints_count ?? 0);
   const classesCount = Number(summary.classes_count ?? summary.detected_classes ?? 0);
   const teachersCount = Number(summary.teachers_count ?? summary.detected_teachers ?? 0);
   const subjectsCount = Number(summary.subjects_count ?? summary.detected_subjects ?? 0);
-  return !normalized.has_importable_data || importableRows === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0;
+  return !normalized.has_importable_data || importableRows === 0 && availabilityCount === 0 && constraintsCount === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0;
+}
+
+function detectedDataMessage(normalized) {
+  if (!normalized) return "";
+  if (isScheduleGridBlocked(normalized)) {
+    return "Grille planning détectée, extraction automatique pas encore supportée. Review nécessaire.";
+  }
+  if (normalized.status === "needs_review" && normalized.has_importable_data) {
+    return "Données détectées, validation humaine recommandée.";
+  }
+  return "";
 }
 
 export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, language }) {
@@ -105,9 +149,12 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
   const [error, setError] = useState("");
   const normalized = preview ? normalizeImportResult(preview) : null;
   const rows = previewRows(normalized);
+  const availabilityRows = previewAvailabilityRows(normalized);
+  const constraintRows = previewConstraintRows(normalized);
   const previewKeys = Object.keys(asObject(normalized?.normalized_preview));
   const hasMinimalResponse = normalized && !previewKeys.length && !rows.length;
   const emptyImportAnalysis = isEmptyImportAnalysis(normalized);
+  const productLimitMessage = detectedDataMessage(normalized);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -208,10 +255,11 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
               </div>
             </div>
             {hasMinimalResponse ? <div className="notice">Analyse reçue. Aperçu minimal disponible.</div> : null}
+            {productLimitMessage ? <div className="notice">{productLimitMessage}</div> : null}
             {emptyImportAnalysis ? (
               <div className="notice danger">
                 <strong>Aucune donnée importable détectée.</strong>
-                <span>Le fichier a été reçu, mais aucune table exploitable n’a été reconnue.</span>
+                <span>{isScheduleGridBlocked(normalized) ? "La grille est reconnue, mais son extraction automatique n’est pas encore disponible." : "Le fichier a été reçu, mais aucune table exploitable n’a été reconnue."}</span>
               </div>
             ) : null}
             <div className="schedule-item">
@@ -224,18 +272,55 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             {normalized.errors.map((item, index) => <div className="notice danger" key={`error-${index}`}>{String(item)}</div>)}
             {normalized.diagnostics.map((item, index) => <div className="notice" key={`diagnostic-${index}`}>{diagnosticText(item)}</div>)}
             {commitResult?.success ? <div className="notice">{commitResult.message}</div> : null}
-            {rows.slice(0, 12).map((lesson, index) => {
-              const safeLesson = asObject(lesson);
-              return (
-              <div className="schedule-item" key={`${safeLesson.row || "row"}-${safeLesson.column || "col"}-${index}`}>
-                <time>{safeLesson.day || ""} {safeLesson.slot_label || safeLesson.slot || ""}</time>
-                <strong>{safeLesson.class_name || safeLesson.class || t.unavailable}</strong>
-                <span>{safeLesson.subject || safeLesson.subject_name || t.unavailable}</span>
-                <span>{safeLesson.teacher || safeLesson.teacher_name || t.unavailable}</span>
-              </div>
-              );
-            })}
-            {!rows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
+            {rows.length ? (
+              <section className="stack-form">
+                <h3>Besoins horaires détectés</h3>
+                {rows.slice(0, 12).map((lesson, index) => {
+                  const safeLesson = asObject(lesson);
+                  return (
+                    <div className="schedule-item" key={`${safeLesson.row || "row"}-${safeLesson.column || "col"}-${index}`}>
+                      <time>{safeLesson.day || ""} {safeLesson.slot_label || safeLesson.slot || ""}</time>
+                      <strong>{safeLesson.class_name || safeLesson.class || t.unavailable}</strong>
+                      <span>{safeLesson.subject || safeLesson.subject_name || t.unavailable}</span>
+                      <span>{safeLesson.teacher || safeLesson.teacher_name || t.unavailable}</span>
+                    </div>
+                  );
+                })}
+              </section>
+            ) : null}
+            {availabilityRows.length ? (
+              <section className="stack-form">
+                <h3>Disponibilités professeurs détectées</h3>
+                {availabilityRows.slice(0, 12).map((availability, index) => {
+                  const safeAvailability = asObject(availability);
+                  return (
+                    <div className="schedule-item" key={`availability-${safeAvailability.teacher_name || safeAvailability.teacher || "teacher"}-${index}`}>
+                      <time>{safeAvailability.day || ""} {safeAvailability.time || safeAvailability.slot || safeAvailability.slot_label || ""}</time>
+                      <strong>{safeAvailability.teacher_name || safeAvailability.teacher || t.unavailable}</strong>
+                      <span>{safeAvailability.availability || safeAvailability.status || t.unavailable}</span>
+                      <span>{safeAvailability.confidence != null ? safeAvailability.confidence : ""}</span>
+                    </div>
+                  );
+                })}
+              </section>
+            ) : null}
+            {constraintRows.length ? (
+              <section className="stack-form">
+                <h3>Contraintes détectées</h3>
+                {constraintRows.slice(0, 12).map((constraint, index) => {
+                  const safeConstraint = asObject(constraint);
+                  return (
+                    <div className="schedule-item" key={`constraint-${index}`}>
+                      <time>{safeConstraint.type || safeConstraint.kind || ""}</time>
+                      <strong>{safeConstraint.text || safeConstraint.description || t.unavailable}</strong>
+                      <span>{safeConstraint.target || safeConstraint.teacher_name || safeConstraint.class_name || ""}</span>
+                      <span>{safeConstraint.confidence != null ? safeConstraint.confidence : ""}</span>
+                    </div>
+                  );
+                })}
+              </section>
+            ) : null}
+            {!rows.length && !availabilityRows.length && !constraintRows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
             <details className="notice">
               <summary>Raw response</summary>
               <pre>{JSON.stringify(normalized.raw, null, 2)}</pre>
