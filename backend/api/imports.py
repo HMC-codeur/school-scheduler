@@ -26,7 +26,7 @@ async def analyze_import(file: UploadFile = File(...)) -> dict:
     content = await file.read()
     if len(content or b"") > excel_import_max_bytes():
         raise HTTPException(status_code=413, detail=f"Import file is too large. Limit is {excel_import_max_bytes()} bytes.")
-    result = _analyze_content(content, filename=file.filename)
+    result = _analyze_import_primary(content, filename=file.filename)
     _ANALYSES[result["import_id"]] = result
     return result
 
@@ -157,6 +157,29 @@ def _parse_corrections(raw: str | None) -> dict[str, Any] | None:
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=400, detail="Corrections invalides: objet JSON attendu.")
     return parsed
+
+
+def _analyze_import_primary(content: bytes, filename: str | None) -> dict[str, Any]:
+    try:
+        from backend.services.imports.intelligence_adapter import analyze_with_intelligence_brains
+
+        result = analyze_with_intelligence_brains(content, filename=filename)
+        result["engine"] = "imports_intelligence_brains"
+        return result
+    except Exception as exc:
+        result = _analyze_content(content, filename)
+        result["engine"] = "fallback"
+        diagnostics = result.setdefault("diagnostics", [])
+        if isinstance(diagnostics, list):
+            diagnostics.append(
+                {
+                    "severity": "warning",
+                    "code": "intelligence_engine_failed",
+                    "message": str(exc),
+                }
+            )
+            result["needs_human_review"] = True
+        return result
 
 
 def _analyze_content(content: bytes, filename: str | None) -> dict[str, Any]:
