@@ -47,7 +47,9 @@ async function parseError(response) {
     ? detail.map((item) => `${(item.loc || []).join(".")}: ${item.msg}`).join(" | ")
     : typeof detail === "string"
       ? detail
-      : payload.message || "הבקשה נכשלה";
+      : detail && typeof detail === "object"
+        ? JSON.stringify(detail)
+        : payload.message || "הבקשה נכשלה";
 }
 
 function formatApiDebugPayload(payload) {

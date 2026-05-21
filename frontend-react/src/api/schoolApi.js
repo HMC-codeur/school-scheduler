@@ -98,7 +98,7 @@ export function clearSchedule() {
 export function previewExcel(file) {
   const formData = new FormData();
   formData.append("file", file);
-  return apiRequest("/schedule/import/excel/preview", {
+  return apiRequest("/imports/analyze", {
     method: "POST",
     body: formData,
   });
