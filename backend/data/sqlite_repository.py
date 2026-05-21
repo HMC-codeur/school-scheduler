@@ -147,6 +147,8 @@ class SQLiteRepository(MemoryStore):
             )
         self.repair_proposals = {}
         self.schedule_versions = []
+        if hasattr(self, "import_requirements"):
+            self.import_requirements = []
 
     @property
     def classes(self) -> list[Class]:
