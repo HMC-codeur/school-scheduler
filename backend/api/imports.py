@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
+import unicodedata
 from io import BytesIO, StringIO
 from typing import Any
 
@@ -164,6 +166,9 @@ def _analyze_content(content: bytes, filename: str | None) -> dict[str, Any]:
     if file_type == "csv":
         return _analyze_csv(content, filename)
     if file_type == "xlsx":
+        table_result = _analyze_xlsx_requirement_tables(content, filename)
+        if _has_importable_data(table_result.get("summary", {}), table_result.get("normalized_preview", {})):
+            return table_result
         preview = preview_excel_schedule(content, filename=filename)
         if preview.get("errors"):
             result = _analyze_xlsx_table(content, filename)
@@ -172,6 +177,99 @@ def _analyze_content(content: bytes, filename: str | None) -> dict[str, Any]:
             return _analysis_from_diagnostic(filename, file_type, preview["errors"])
         return _excel_preview_to_analysis(preview, filename=filename)
     return _blocked_analysis(filename, file_type, "unsupported_for_now", "Format non supporté pour l'analyse d'import.")
+
+
+def _analyze_xlsx_requirement_tables(content: bytes, filename: str | None) -> dict[str, Any]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return _blocked_analysis(filename, "xlsx", "xlsx_reader_unavailable", "Le lecteur XLSX n'est pas disponible.")
+
+    try:
+        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return _blocked_analysis(filename, "xlsx", "xlsx_read_failed", "Fichier Excel vide, corrompu ou non supporté.")
+
+    all_rows = 0
+    sheet_profiles = []
+    sheet_classifications = []
+    mapped_rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    try:
+        for sheet in workbook.worksheets:
+            rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+            non_empty_rows = [row for row in rows if any(_clean(value) for value in row)]
+            all_rows += max(0, len(non_empty_rows) - 1)
+            header = _detect_requirement_header(non_empty_rows)
+            if header is None:
+                sheet_profiles.append({"sheet_name": sheet.title, "parser_used": "mvp_v1_requirements_table", "confidence": 0.0})
+                sheet_classifications.append({"sheet_name": sheet.title, "sheet_type": "unknown_review", "confidence": 0.0, "needs_human_review": True})
+                continue
+            header_index, header_row, column_roles, confidence = header
+            sheet_profiles.append({"sheet_name": sheet.title, "parser_used": "mvp_v1_requirements_table", "confidence": confidence})
+            sheet_classifications.append({"sheet_name": sheet.title, "sheet_type": "requirements_table", "confidence": confidence, "needs_human_review": confidence < 0.75})
+            for row_offset, row in enumerate(non_empty_rows[header_index + 1 :], start=header_index + 2):
+                mapped: dict[str, Any] = {"source_sheet": sheet.title, "source_row": row_offset}
+                for index, value in enumerate(row):
+                    role = column_roles.get(index)
+                    if not role:
+                        continue
+                    mapped[role] = _parse_cell_for_role(role, value)
+                for key in ("class_name", "teacher_name", "subject_name", "weekly_hours"):
+                    mapped.setdefault(key, None)
+                if not any(mapped.get(key) for key in ("class_name", "teacher_name", "subject_name", "weekly_hours")):
+                    continue
+                mapped_rows.append(mapped)
+    finally:
+        workbook.close()
+
+    classes = _unique(item.get("class_name") for item in mapped_rows)
+    teachers = _unique(item.get("teacher_name") for item in mapped_rows)
+    subjects = _unique(_canonical_subject(item.get("subject_name")) for item in mapped_rows)
+    requirements = []
+    for item in mapped_rows:
+        requirement = {**item, "subject_name": _canonical_subject(item.get("subject_name"))}
+        requirements.append(requirement)
+        if not requirement.get("class_name"):
+            diagnostics.append(_diagnostic("blocking", "missing_class", "Certaines lignes n'ont pas de classe détectée."))
+        if not requirement.get("subject_name"):
+            diagnostics.append(_diagnostic("warning", "missing_subject", "Certaines lignes n'ont pas de matière détectée."))
+        if not requirement.get("teacher_name"):
+            diagnostics.append(_diagnostic("warning", "missing_teacher", "Certaines lignes n'ont pas de professeur détecté."))
+        if requirement.get("weekly_hours") is None:
+            diagnostics.append(_diagnostic("warning", "missing_or_invalid_hours", "Certaines lignes n'ont pas de volume horaire lisible."))
+
+    diagnostics = _dedupe_diagnostics(diagnostics)
+    status = "ok" if requirements and not any(item.get("severity") == "blocking" for item in diagnostics) else "needs_review" if requirements else "blocked"
+    result = _analysis_payload(
+        filename=filename,
+        file_type="xlsx",
+        status=status,
+        confidence=0.82 if status == "ok" else 0.58 if requirements else 0.0,
+        summary={
+            "sheets_count": len(sheet_profiles),
+            "rows_count": all_rows,
+            "importable_rows": len(requirements),
+            "requirements_count": len(requirements),
+            "classes_count": len(classes),
+            "teachers_count": len(teachers),
+            "subjects_count": len(subjects),
+        },
+        normalized_preview={
+            "classes": [{"name": name} for name in classes],
+            "teachers": [{"name": name} for name in teachers],
+            "subjects": [{"name": name} for name in subjects],
+            "requirements": requirements,
+            "constraints": [],
+            "availability": [],
+            "source_trace": [],
+        },
+        diagnostics=diagnostics,
+    )
+    result["engine_used"] = "mvp_v1_requirements_table"
+    result["sheet_profiles"] = sheet_profiles
+    result["sheet_classifications"] = sheet_classifications
+    return result
 
 
 def _analyze_csv(content: bytes, filename: str | None) -> dict[str, Any]:
@@ -324,7 +422,8 @@ def _excel_preview_to_analysis(preview: dict[str, Any], filename: str | None, le
     )
     payload["sheet_profiles"] = [{"sheet_name": preview.get("sheet_name"), "parser_used": preview.get("parser_used")}]
     payload["sheet_classifications"] = [{"sheet_name": preview.get("sheet_name"), "sheet_type": "schedule_grid"}]
-    payload["can_commit"] = bool(preview.get("can_commit"))
+    payload["can_commit"] = bool(preview.get("can_commit")) and payload["can_commit"]
+    payload["can_apply"] = bool(preview.get("can_commit")) and payload["can_apply"]
     if legacy:
         payload["engine_used"] = "v1"
     return payload
@@ -365,22 +464,58 @@ def _analysis_payload(
     diagnostics: list[dict[str, Any]],
     import_id: str | None = None,
 ) -> dict[str, Any]:
+    diagnostics = _with_empty_data_diagnostic(summary, normalized_preview, diagnostics)
+    has_data = _has_importable_data(summary, normalized_preview)
+    is_blocked = status == "blocked" or not has_data or any(item.get("severity") == "blocking" for item in diagnostics)
+    can_commit = status == "ok" and not is_blocked
     result = {
         "import_id": import_id or _import_id(filename, file_type, summary, normalized_preview),
         "filename": filename,
-        "status": status,
+        "status": "blocked" if is_blocked else status,
         "file_type": file_type,
-        "confidence": confidence,
-        "confidence_score": confidence,
+        "confidence": 0.0 if is_blocked and not has_data else confidence,
+        "confidence_score": 0.0 if is_blocked and not has_data else confidence,
         "summary": summary,
         "sheet_profiles": [],
         "sheet_classifications": [],
         "normalized_preview": normalized_preview,
         "diagnostics": diagnostics,
         "human_review": _human_review(diagnostics),
-        "can_commit": status == "ok",
+        "needs_human_review": bool(diagnostics) or is_blocked,
+        "can_apply": can_commit,
+        "can_commit": can_commit,
     }
     return result
+
+
+def _with_empty_data_diagnostic(
+    summary: dict[str, Any],
+    preview: dict[str, Any],
+    diagnostics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if _has_importable_data(summary, preview):
+        return diagnostics
+    if any(item.get("code") == "no_importable_data" for item in diagnostics):
+        return diagnostics
+    return [
+        *diagnostics,
+        _diagnostic("blocking", "no_importable_data", "Aucune donnée importable n'a été détectée."),
+    ]
+
+
+def _has_importable_data(summary: dict[str, Any], preview: dict[str, Any]) -> bool:
+    requirements_count = int(summary.get("requirements_count") or summary.get("importable_rows") or 0)
+    classes_count = int(summary.get("classes_count") or summary.get("detected_classes") or 0)
+    teachers_count = int(summary.get("teachers_count") or summary.get("detected_teachers") or 0)
+    subjects_count = int(summary.get("subjects_count") or summary.get("detected_subjects") or 0)
+    if requirements_count > 0 or any(count > 0 for count in (classes_count, teachers_count, subjects_count)):
+        return True
+    return any(as_list for as_list in (
+        preview.get("requirements") or [],
+        preview.get("classes") or [],
+        preview.get("teachers") or [],
+        preview.get("subjects") or [],
+    ))
 
 
 def _map_csv_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -392,17 +527,69 @@ def _map_csv_row(row: dict[str, Any]) -> dict[str, Any]:
     return mapped
 
 
+def _detect_requirement_header(rows: list[list[Any]]) -> tuple[int, list[Any], dict[int, str], float] | None:
+    best: tuple[int, list[Any], dict[int, str], float] | None = None
+    for row_index, row in enumerate(rows[:20]):
+        column_roles = {index: _header_role(value) for index, value in enumerate(row)}
+        roles = {role for role in column_roles.values() if role}
+        business_roles = roles & {"class_name", "subject_name", "teacher_name", "weekly_hours"}
+        if len(business_roles) < 2:
+            continue
+        score = len(business_roles) / 4
+        if {"class_name", "subject_name"}.issubset(business_roles):
+            score += 0.2
+        confidence = min(1.0, round(0.35 + score * 0.65, 2))
+        if best is None or confidence > best[3]:
+            best = (row_index, row, {index: role for index, role in column_roles.items() if role}, confidence)
+    return best
+
+
 def _header_role(value: str | None) -> str | None:
-    normalized = _clean(value).casefold().replace("é", "e").replace("è", "e")
-    if normalized in {"classe", "class", "class_name", "כיתה"}:
+    normalized = _fold_header(value)
+    tokens = {token for token in re_split_header(normalized) if token}
+    if normalized in {"classe", "class", "class name", "niveau", "groupe", "כיתה"} or tokens & {"classe", "class", "niveau", "groupe", "כיתה"}:
         return "class_name"
-    if normalized in {"matiere", "subject", "subject_name", "מקצוע"}:
+    if normalized in {"matiere", "subject", "subject name", "discipline", "course", "מקצוע"} or tokens & {"matiere", "subject", "discipline", "course", "מקצוע"}:
         return "subject_name"
-    if normalized in {"professeur", "prof", "teacher", "teacher_name", "מורה"}:
+    if normalized in {"professeur", "prof", "teacher", "teacher name", "enseignant", "מורה", "רב"} or tokens & {"professeur", "prof", "teacher", "enseignant", "מורה", "רב"}:
         return "teacher_name"
-    if normalized in {"heures", "hours", "weekly_hours", "שעות"}:
+    if normalized in {"heures", "hours", "weekly hours", "volume hebdo", "volume horaire", "weekly_hours", "שעות"} or tokens & {"heures", "hours", "שעות"}:
         return "weekly_hours"
+    if normalized in {"jour", "day", "יום"} or tokens & {"jour", "day", "יום"}:
+        return "day"
+    if normalized in {"heure", "time", "creneau", "slot", "שעה"} or tokens & {"heure", "time", "creneau", "slot", "שעה"}:
+        return "slot"
     return None
+
+
+def _parse_cell_for_role(role: str, value: Any) -> Any:
+    if role == "weekly_hours":
+        return _parse_number(value)
+    return _clean(value) or None
+
+
+def _parse_number(value: Any) -> float | int | None:
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if float(value).is_integer() else float(value)
+    text = _clean(value).replace(",", ".")
+    match = re_search_number(text)
+    if not match:
+        return None
+    number = float(match)
+    return int(number) if number.is_integer() else number
+
+
+def _canonical_subject(value: Any) -> str:
+    subject = _clean(value)
+    folded = _fold_header(subject)
+    aliases = {
+        "maths": "Mathématiques",
+        "mathematiques": "Mathématiques",
+        "math": "Mathématiques",
+    }
+    return aliases.get(folded, subject)
 
 
 def _create_missing_entities(preview: dict[str, Any], store: SchedulerRepository) -> dict[str, int]:
@@ -452,6 +639,18 @@ def _diagnostic(severity: str, code: str, message: str) -> dict[str, Any]:
     return {"severity": severity, "code": code, "message": message}
 
 
+def _dedupe_diagnostics(diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    result: list[dict[str, Any]] = []
+    for item in diagnostics:
+        key = (item.get("severity"), item.get("code"), item.get("message"))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
 def _human_review(diagnostics: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [{"question": item["message"], "code": item["code"]} for item in diagnostics if item.get("severity") in {"blocking", "warning"}]
 
@@ -475,3 +674,19 @@ def _unique(values: Any) -> list[str]:
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
+
+
+def _fold_header(value: Any) -> str:
+    cleaned = _clean(value).casefold()
+    decomposed = unicodedata.normalize("NFKD", cleaned)
+    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return re.sub(r"[\s_\-]+", " ", without_accents).strip()
+
+
+def re_split_header(value: str) -> list[str]:
+    return [item.strip() for item in re.split(r"[/|:()]+", value) if item.strip()]
+
+
+def re_search_number(value: str) -> str | None:
+    match = re.search(r"-?\d+(?:\.\d+)?", value)
+    return match.group(0) if match else None

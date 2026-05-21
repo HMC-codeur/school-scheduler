@@ -1065,7 +1065,7 @@ async function analyzeImportIntelligence(event) {
     scheduleState.importIntelligence = analysis;
     renderImportIntelligence(analysis);
     $("import-intelligence-status").textContent = `${analysis.status} · confiance ${Math.round((analysis.confidence || 0) * 100)}%`;
-    $("import-intelligence-apply-btn").disabled = !analysis.import_id || analysis.status === "blocked";
+    $("import-intelligence-apply-btn").disabled = !analysis.import_id || analysis.status === "blocked" || isEmptyImportAnalysis(analysis) || analysis.can_apply === false || analysis.can_commit === false;
     notify("Analyse intelligence terminée.");
   } catch (error) {
     scheduleState.importIntelligence = null;
@@ -1125,16 +1125,23 @@ function renderImportIntelligence(analysis, error = null) {
     return;
   }
   const summary = analysis.summary || {};
+  const emptyAnalysis = isEmptyImportAnalysis(analysis);
   [
     ["Statut", analysis.status],
     ["Type", analysis.file_type],
     ["Confiance", `${Math.round((analysis.confidence || 0) * 100)}%`],
     ["Feuilles", summary.sheets_count ?? 0],
-    ["Classes", summary.detected_classes ?? 0],
-    ["Professeurs", summary.detected_teachers ?? 0],
-    ["Matières", summary.detected_subjects ?? 0],
+    ["Classes", summary.classes_count ?? summary.detected_classes ?? 0],
+    ["Professeurs", summary.teachers_count ?? summary.detected_teachers ?? 0],
+    ["Matières", summary.subjects_count ?? summary.detected_subjects ?? 0],
     ["Besoins", summary.requirements_count ?? 0],
   ].forEach(([label, value]) => summaryTarget.appendChild(importSummaryCard(label, String(value), "muted")));
+  if (emptyAnalysis) {
+    const warning = create("div", "", "notice danger");
+    warning.appendChild(create("strong", "Aucune donnée importable détectée."));
+    warning.appendChild(create("p", "Le fichier a été reçu, mais aucune table exploitable n’a été reconnue.", "hint"));
+    summaryTarget.appendChild(warning);
+  }
 
   (analysis.sheet_classifications || []).forEach((sheet) => {
     const details = create("details");
@@ -1146,7 +1153,7 @@ function renderImportIntelligence(analysis, error = null) {
 
   const normalized = analysis.normalized_preview || {};
   ["classes", "teachers", "subjects", "requirements", "availability", "constraints"].forEach((key) => {
-    const values = normalized[key] || [];
+    const values = Array.isArray(normalized[key]) ? normalized[key] : [];
     const details = create("details");
     details.open = ["classes", "teachers", "subjects", "requirements"].includes(key);
     details.appendChild(create("summary", `${key} · ${values.length}`));
@@ -1174,6 +1181,22 @@ function renderImportIntelligence(analysis, error = null) {
   });
 }
 
+function isEmptyImportAnalysis(analysis) {
+  if (!analysis) return false;
+  const summary = analysis.summary || {};
+  const normalized = analysis.normalized_preview || {};
+  const requirements = Array.isArray(normalized.requirements) ? normalized.requirements.length : 0;
+  const classes = Array.isArray(normalized.classes) ? normalized.classes.length : 0;
+  const teachers = Array.isArray(normalized.teachers) ? normalized.teachers.length : 0;
+  const subjects = Array.isArray(normalized.subjects) ? normalized.subjects.length : 0;
+  const importableRows = Number(summary.importable_rows ?? summary.requirements_count ?? requirements);
+  const classesCount = Number(summary.classes_count ?? summary.detected_classes ?? classes);
+  const teachersCount = Number(summary.teachers_count ?? summary.detected_teachers ?? teachers);
+  const subjectsCount = Number(summary.subjects_count ?? summary.detected_subjects ?? subjects);
+  const confidence = Number(analysis.confidence ?? analysis.confidence_score ?? 0);
+  return importableRows === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0 || analysis.can_apply === false || analysis.can_commit === false && importableRows === 0;
+}
+
 function formatIntelligenceItem(item) {
   if (item?.name) return item.name;
   if (item?.class_name || item?.subject_name) return `${item.class_name || "Classe ?"} · ${item.subject_name || "Matière ?"} · ${item.teacher_name || "Prof ?"} · ${item.weekly_hours ?? "?"}h`;
@@ -1187,13 +1210,16 @@ function updateExcelMvpCommitControls(analysis) {
   const summary = $("excel-mvp-commit-summary");
   if (!button || !summary) return;
   const blocking = analysis?.diagnostics?.blocking || [];
-  const canCommit = Boolean(analysis?.import_id) && blocking.length === 0;
+  const emptyAnalysis = isEmptyImportAnalysis(analysis);
+  const canCommit = Boolean(analysis?.import_id) && blocking.length === 0 && !emptyAnalysis && analysis?.can_commit !== false && analysis?.can_apply !== false;
   button.hidden = !analysis;
   button.disabled = !canCommit;
   if (!analysis) {
     summary.textContent = "";
   } else if (blocking.length) {
     summary.textContent = "Import bloqué tant que les diagnostics bloquants ne sont pas corrigés.";
+  } else if (emptyAnalysis) {
+    summary.textContent = "Aucune donnée importable détectée. Le fichier a été reçu, mais aucune table exploitable n’a été reconnue.";
   } else {
     summary.textContent = "Analyse valide. Vous pouvez importer les données.";
   }

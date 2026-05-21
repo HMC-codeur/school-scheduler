@@ -15,28 +15,39 @@ function normalizeImportResult(result) {
   const safe = asObject(result);
   const counts = asObject(safe.counts);
   const summary = asObject(safe.summary || safe.workbook_summary);
-  const normalizedPreview = safe.normalized_preview || safe.preview || {};
+  const normalizedPreview = asObject(safe.normalized_preview || safe.preview);
+  const normalizedSummary = Object.keys(summary).length
+    ? summary
+    : {
+        classes_count: counts.classes || 0,
+        teachers_count: counts.teachers || 0,
+        subjects_count: counts.subjects || 0,
+        slots_count: counts.slots || 0,
+        requirements_count: counts.lessons || 0,
+      };
+  const requirementsCount = Number(normalizedSummary.requirements_count ?? normalizedSummary.importable_rows ?? asArray(normalizedPreview.requirements).length ?? 0);
+  const classesCount = Number(normalizedSummary.classes_count ?? normalizedSummary.detected_classes ?? asArray(normalizedPreview.classes).length ?? 0);
+  const teachersCount = Number(normalizedSummary.teachers_count ?? normalizedSummary.detected_teachers ?? asArray(normalizedPreview.teachers).length ?? 0);
+  const subjectsCount = Number(normalizedSummary.subjects_count ?? normalizedSummary.detected_subjects ?? asArray(normalizedPreview.subjects).length ?? 0);
+  const confidence = safe.global_confidence ?? safe.confidence ?? safe.confidence_score ?? null;
+  const hasImportableData = requirementsCount > 0 || classesCount > 0 || teachersCount > 0 || subjectsCount > 0;
+  const backendAllowsImport = Boolean(safe.can_apply ?? safe.can_commit);
+  const canImport = backendAllowsImport && hasImportableData && Number(confidence ?? 0) > 0;
   return {
     import_id: safe.import_id || safe.importId || null,
     status: safe.status || "unknown",
     filename: safe.filename || safe.file_name || "",
-    global_confidence: safe.global_confidence ?? safe.confidence ?? safe.confidence_score ?? null,
-    can_apply: Boolean(safe.can_apply ?? safe.can_commit),
-    can_commit: Boolean(safe.can_commit ?? safe.can_apply),
-    summary: Object.keys(summary).length
-      ? summary
-      : {
-          classes_count: counts.classes || 0,
-          teachers_count: counts.teachers || 0,
-          subjects_count: counts.subjects || 0,
-          slots_count: counts.slots || 0,
-          requirements_count: counts.lessons || 0,
-        },
+    global_confidence: confidence,
+    can_apply: canImport,
+    can_commit: canImport,
+    has_importable_data: hasImportableData,
+    needs_human_review: Boolean(safe.needs_human_review) || !canImport,
+    summary: normalizedSummary,
     sheet_profiles: asArray(safe.sheet_profiles),
     sheet_classifications: asArray(safe.sheet_classifications),
     diagnostics: asArray(safe.diagnostics),
     human_questions: asArray(safe.human_questions),
-    normalized_preview: normalizedPreview || {},
+    normalized_preview: normalizedPreview,
     warnings: asArray(safe.warnings),
     errors: asArray(safe.errors),
     lessons: asArray(safe.lessons),
@@ -75,6 +86,17 @@ function previewRows(normalized) {
       : asArray(normalized?.lessons);
 }
 
+function isEmptyImportAnalysis(normalized) {
+  if (!normalized) return false;
+  const summary = asObject(normalized.summary);
+  const confidence = Number(normalized.global_confidence ?? 0);
+  const importableRows = Number(summary.importable_rows ?? summary.requirements_count ?? 0);
+  const classesCount = Number(summary.classes_count ?? summary.detected_classes ?? 0);
+  const teachersCount = Number(summary.teachers_count ?? summary.detected_teachers ?? 0);
+  const subjectsCount = Number(summary.subjects_count ?? summary.detected_subjects ?? 0);
+  return !normalized.has_importable_data || importableRows === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0;
+}
+
 export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, language }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -85,6 +107,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
   const rows = previewRows(normalized);
   const previewKeys = Object.keys(asObject(normalized?.normalized_preview));
   const hasMinimalResponse = normalized && !previewKeys.length && !rows.length;
+  const emptyImportAnalysis = isEmptyImportAnalysis(normalized);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -178,13 +201,19 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             <div className="section-head">
               <h3>Preview</h3>
               <div className="action-row">
-                <button className="primary-button" disabled={(!normalized.can_commit && !normalized.can_apply) || loading} type="button" onClick={importPreview}>
+                <button className="primary-button" disabled={(!normalized.can_commit && !normalized.can_apply) || emptyImportAnalysis || loading} type="button" onClick={importPreview}>
                   {language === "he" ? "ייבא Planning" : "Importer"}
                 </button>
                 <button className="secondary-button" type="button" onClick={() => navigate("diagnostic")}>{t.runDiagnostic}</button>
               </div>
             </div>
             {hasMinimalResponse ? <div className="notice">Analyse reçue. Aperçu minimal disponible.</div> : null}
+            {emptyImportAnalysis ? (
+              <div className="notice danger">
+                <strong>Aucune donnée importable détectée.</strong>
+                <span>Le fichier a été reçu, mais aucune table exploitable n’a été reconnue.</span>
+              </div>
+            ) : null}
             <div className="schedule-item">
               <time>{normalized.status}</time>
               <strong>{normalized.filename || t.unavailable}</strong>
