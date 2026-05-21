@@ -1,12 +1,13 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from pathlib import Path
 
 from backend.api.classes import router as classes_router
 from backend.api.conditions import router as conditions_router
+from backend.api.imports import router as imports_router
 from backend.api.learning_groups import router as learning_groups_router
 from backend.api.schedule import router as schedule_router
 from backend.api.slots import router as slots_router
@@ -41,6 +42,7 @@ async def pydantic_validation_error_handler(_: Request, exc: ValidationError) ->
 
 app.include_router(classes_router)
 app.include_router(conditions_router)
+app.include_router(imports_router)
 app.include_router(learning_groups_router)
 app.include_router(teachers_router)
 app.include_router(subjects_router)
@@ -54,5 +56,11 @@ REACT_FRONTEND_DIR = ROOT_DIR / "frontend-react" / "dist"
 LEGACY_FRONTEND_DIR = ROOT_DIR / "frontend"
 
 FRONTEND_DIR = REACT_FRONTEND_DIR if REACT_FRONTEND_DIR.exists() else LEGACY_FRONTEND_DIR
+
+
+@app.get("/import-excel", include_in_schema=False)
+def import_excel_spa() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
 
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
