@@ -5,8 +5,7 @@ from typing import Any
 
 from backend.services.imports.intelligence.diagnostics import diagnostic
 from backend.services.imports.intelligence.models import BrainResult, ImportContext, source_trace
-from backend.services.imports.intelligence.normalizers import day_key, is_time_like, normalize_text
-from backend.services.imports.normalizers import looks_like_class_token, parse_lesson_cell
+from backend.services.imports.intelligence.normalizers import day_key, is_time_like, looks_like_class_token, normalize_text, parse_lesson_cell
 
 
 class SemanticDetectionBrain:
