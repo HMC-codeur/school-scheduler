@@ -140,6 +140,123 @@ def test_schedule_grid_preview_is_not_filename_hardcoded() -> None:
     assert renamed["normalized_preview"]["schedule_grid_preview"]
 
 
+def grid_candidate(**overrides: object) -> dict:
+    candidate = {
+        "status": "accepted",
+        "class_name": "6eA",
+        "day": "Lundi",
+        "time": "08:00-09:00",
+        "raw_cell": "Mathématiques Mme Cohen 6eA",
+        "subject": "Mathématiques",
+        "teacher": "Mme Cohen",
+        "confidence": 0.82,
+        "source_trace": {"sheet": "Planning", "row": 2, "column": 3},
+    }
+    candidate.update(overrides)
+    return candidate
+
+
+def validate_grid_candidates(candidates: list[dict]) -> dict:
+    response = client.post("/imports/validate-grid-candidates", json={"candidates": candidates})
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_validate_grid_candidates_accepts_valid_candidate() -> None:
+    payload = validate_grid_candidates([grid_candidate()])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["summary"]["rejected_candidates"] == 0
+    assert payload["valid_candidates"][0]["class_name"] == "6eA"
+    assert payload["valid_candidates"][0]["day_key"] == "mon"
+
+
+def test_validate_grid_candidates_accepts_class_group_alias() -> None:
+    candidate = grid_candidate()
+    candidate.pop("class_name")
+    candidate["class_group"] = "6eA"
+    payload = validate_grid_candidates([candidate])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["valid_candidates"][0]["class_name"] == "6eA"
+
+
+def test_validate_grid_candidates_accepts_group_alias() -> None:
+    candidate = grid_candidate()
+    candidate.pop("class_name")
+    candidate["group"] = "6eA"
+    payload = validate_grid_candidates([candidate])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["valid_candidates"][0]["class_name"] == "6eA"
+
+
+def test_validate_grid_candidates_accepts_time_alias_for_slot() -> None:
+    candidate = grid_candidate()
+    candidate.pop("time")
+    candidate["slot"] = "08:00"
+    payload = validate_grid_candidates([candidate])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["valid_candidates"][0]["slot"] == "08:00"
+
+
+def test_validate_grid_candidates_accepts_subject_name_alias() -> None:
+    candidate = grid_candidate()
+    candidate.pop("subject")
+    candidate["subject_name"] = "Math"
+    payload = validate_grid_candidates([candidate])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["valid_candidates"][0]["subject"] == "Math"
+
+
+def test_validate_grid_candidates_normalizes_raw_cell_and_original_text_aliases() -> None:
+    raw_payload = validate_grid_candidates([grid_candidate(raw_cell="Math Mme Cohen")])
+    original_candidate = grid_candidate()
+    original_candidate.pop("raw_cell")
+    original_candidate["original_text"] = "Math Mme Cohen"
+    original_payload = validate_grid_candidates([original_candidate])
+    assert raw_payload["valid_candidates"][0]["raw_cell"] == "Math Mme Cohen"
+    assert original_payload["valid_candidates"][0]["raw_cell"] == "Math Mme Cohen"
+
+
+def test_validate_grid_candidates_skips_ignored_candidate() -> None:
+    payload = validate_grid_candidates([grid_candidate(status="ignored", subject="")])
+    assert payload["summary"]["ignored_candidates"] == 1
+    assert payload["valid_candidates"] == []
+    assert payload["rejected_candidates"] == []
+    assert payload["blocking_errors"] == []
+
+
+def test_validate_grid_candidates_rejects_missing_subject() -> None:
+    payload = validate_grid_candidates([grid_candidate(subject="")])
+    assert payload["summary"]["rejected_candidates"] == 1
+    assert {error["code"] for error in payload["blocking_errors"]} == {"missing_subject"}
+
+
+def test_validate_grid_candidates_rejects_missing_class_day_or_slot() -> None:
+    payload = validate_grid_candidates(
+        [
+            grid_candidate(class_name=""),
+            grid_candidate(day="", time="08:00-09:00"),
+            grid_candidate(time=""),
+        ]
+    )
+    assert payload["summary"]["rejected_candidates"] == 3
+    codes = {error["code"] for error in payload["blocking_errors"]}
+    assert {"missing_class_or_group", "missing_or_unrecognized_day", "missing_or_unrecognized_slot"}.issubset(codes)
+
+
+def test_validate_grid_candidates_warns_on_low_confidence_accepted_candidate() -> None:
+    payload = validate_grid_candidates([grid_candidate(confidence=0.45)])
+    assert payload["summary"]["valid_candidates"] == 1
+    assert payload["summary"]["blocking_errors"] == 0
+    assert {warning["code"] for warning in payload["warnings"]} == {"low_confidence_accepted"}
+
+
+def test_validate_grid_candidates_response_is_not_importable() -> None:
+    payload = validate_grid_candidates([grid_candidate()])
+    assert payload["can_import"] is False
+    assert payload["requires_final_confirmation"] is True
+    assert payload["dry_run"] is True
+
+
 def test_validation_detects_missing_teacher() -> None:
     payload = analyze("messy_semicolon.csv")
     assert any(item["code"] == "missing_teacher" for item in payload["diagnostics"])
@@ -191,6 +308,7 @@ def test_import_route_table_registers_expected_methods() -> None:
     assert ("/imports/{import_id}/confirm", ("POST",)) in routes
     assert ("/imports/{import_id}/apply", ("POST",)) in routes
     assert ("/imports/excel/analyze", ("POST",)) in routes
+    assert ("/imports/validate-grid-candidates", ("POST",)) in routes
 
 
 def test_apply_import_does_not_corrupt_existing_data() -> None:

@@ -14,6 +14,7 @@ from backend.data.repository import SchedulerRepository
 from backend.data.store import get_store
 from backend.models.schemas import ExcelImportCommitRequest
 from backend.services.excel_import import commit_excel_import, excel_import_max_bytes, preview_excel_schedule
+from backend.services.imports.normalizers import day_key, is_time_like, normalize_text
 
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -90,6 +91,72 @@ async def analyze_excel(
     return _excel_preview_to_analysis(preview, filename=file.filename, legacy=True)
 
 
+@router.post("/validate-grid-candidates", response_model=dict)
+def validate_grid_candidates(payload: dict[str, Any] | list[Any]) -> dict:
+    candidates = payload if isinstance(payload, list) else payload.get("candidates", [])
+    if not isinstance(candidates, list):
+        raise HTTPException(status_code=400, detail="candidates must be a list")
+
+    valid_candidates: list[dict[str, Any]] = []
+    rejected_candidates: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    blocking_errors: list[dict[str, Any]] = []
+    ignored_count = 0
+    accepted_count = 0
+
+    for index, raw_candidate in enumerate(candidates):
+        candidate = raw_candidate if isinstance(raw_candidate, dict) else {"raw": raw_candidate}
+        status = normalize_text(candidate.get("status") or candidate.get("review_status") or "accepted").casefold()
+        if status == "ignored":
+            ignored_count += 1
+            continue
+        if status != "accepted":
+            error = _grid_candidate_issue(index, candidate, "unsupported_status", "Statut de candidat non supporté.", field="status", value=status)
+            rejected_candidates.append({"index": index, "candidate": candidate, "errors": [error]})
+            blocking_errors.append(error)
+            continue
+
+        accepted_count += 1
+        normalized, errors = _validate_accepted_grid_candidate(candidate, index)
+        if errors:
+            rejected_candidates.append({"index": index, "candidate": candidate, "errors": errors})
+            blocking_errors.extend(errors)
+            continue
+
+        confidence = normalized.get("confidence")
+        if confidence is not None and confidence < 0.6:
+            warnings.append(
+                _grid_candidate_issue(
+                    index,
+                    candidate,
+                    "low_confidence_accepted",
+                    "Candidat accepté avec confiance faible.",
+                    field="confidence",
+                    value=confidence,
+                )
+            )
+        valid_candidates.append(normalized)
+
+    return {
+        "valid_candidates": valid_candidates,
+        "rejected_candidates": rejected_candidates,
+        "warnings": warnings,
+        "blocking_errors": blocking_errors,
+        "summary": {
+            "total_candidates": len(candidates),
+            "accepted_candidates": accepted_count,
+            "ignored_candidates": ignored_count,
+            "valid_candidates": len(valid_candidates),
+            "rejected_candidates": len(rejected_candidates),
+            "warnings": len(warnings),
+            "blocking_errors": len(blocking_errors),
+        },
+        "can_import": False,
+        "requires_final_confirmation": True,
+        "dry_run": True,
+    }
+
+
 @router.get("/excel/schema", response_model=dict)
 def get_excel_schema() -> dict:
     return {
@@ -145,6 +212,86 @@ def _try_excel_mvp_commit(import_id: str, store: SchedulerRepository) -> dict[st
     if result.get("status") == "blocked":
         raise HTTPException(status_code=409, detail=result)
     return result
+
+
+def _validate_accepted_grid_candidate(candidate: dict[str, Any], index: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    class_name = _first_text(candidate, "class_name", "class_group", "group", "class")
+    day = _first_text(candidate, "day")
+    slot = _first_text(candidate, "slot", "time", "start_time", "period")
+    subject = _first_text(candidate, "subject", "subject_name")
+    teacher = _first_text(candidate, "teacher", "teacher_name")
+    raw_cell = _first_text(candidate, "original_text", "raw_cell", "cell_text")
+    confidence = _optional_float(candidate.get("confidence"))
+
+    errors: list[dict[str, Any]] = []
+    if not class_name:
+        errors.append(_grid_candidate_issue(index, candidate, "missing_class_or_group", "Classe ou groupe obligatoire.", field="class_name"))
+    if not _recognizable_day(day, slot):
+        errors.append(_grid_candidate_issue(index, candidate, "missing_or_unrecognized_day", "Jour obligatoire ou non reconnu.", field="day", value=day))
+    if not _recognizable_slot(slot):
+        errors.append(_grid_candidate_issue(index, candidate, "missing_or_unrecognized_slot", "Créneau ou heure obligatoire ou non reconnu.", field="slot", value=slot))
+    if not subject:
+        errors.append(_grid_candidate_issue(index, candidate, "missing_subject", "Matière obligatoire.", field="subject"))
+
+    normalized = {
+        "class_name": class_name,
+        "day": day,
+        "day_key": day_key(day) or day_key(slot),
+        "slot": slot,
+        "subject": subject,
+        "teacher": teacher or None,
+        "raw_cell": raw_cell or None,
+        "confidence": confidence,
+        "source_trace": candidate.get("source_trace") if isinstance(candidate.get("source_trace"), dict) else None,
+        "status": "accepted",
+    }
+    return normalized, errors
+
+
+def _first_text(candidate: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = normalize_text(candidate.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _recognizable_day(day: str, slot: str) -> bool:
+    return bool(day_key(day) or day_key(slot))
+
+
+def _recognizable_slot(slot: str) -> bool:
+    return bool(slot and is_time_like(slot))
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _grid_candidate_issue(
+    index: int,
+    candidate: dict[str, Any],
+    code: str,
+    message: str,
+    *,
+    field: str | None = None,
+    value: Any | None = None,
+) -> dict[str, Any]:
+    trace = candidate.get("source_trace") if isinstance(candidate.get("source_trace"), dict) else {}
+    return {
+        "code": code,
+        "message": message,
+        "candidate_index": index,
+        "field": field,
+        "value": value,
+        "row": trace.get("row"),
+        "column": trace.get("column"),
+    }
 
 
 def _parse_corrections(raw: str | None) -> dict[str, Any] | None:
