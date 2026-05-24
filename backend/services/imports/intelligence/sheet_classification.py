@@ -5,6 +5,15 @@ from typing import Any
 
 from backend.services.imports.intelligence.models import BrainResult, ImportContext
 from backend.services.imports.intelligence.normalizers import fold_key, normalize_text, parse_lesson_cell
+from backend.services.imports.intelligence.school_terms import (
+    AVAILABILITY_MARKERS,
+    CONSTRAINT_MARKERS,
+    TEACHER_MARKERS,
+    count_fuzzy_hits,
+    looks_availability_like,
+    looks_constraint_like,
+    looks_lesson_like,
+)
 
 
 SHEET_TYPES = {
@@ -41,38 +50,7 @@ class SheetClassificationBrain:
         )
 
 
-AVAILABILITY_HINTS = (
-    "availability",
-    "available",
-    "unavailable",
-    "disponibilite",
-    "disponible",
-    "indisponible",
-    "זמינות",
-    "זמין",
-    "פנוי",
-)
-AVAILABILITY_MARKERS = {"זמין", "לא זמין", "פנוי", "לא פנוי", "available", "unavailable", "yes", "no", "כן", "לא"}
-CONSTRAINT_HINTS = (
-    "constraint",
-    "constraints",
-    "contrainte",
-    "contraintes",
-    "restriction",
-    "blocked",
-    "max hours",
-    "unavailable teacher",
-    "teacher unavailable",
-    "teacher_unavailable",
-    "class_max_daily_hours",
-    "avoid",
-    "אסור",
-    "אילוץ",
-    "אילוצים",
-    "מגבלה",
-    "מגבלות",
-)
-TEACHER_MARKER_PATTERN = re.compile(r"(?:^|\b)(teacher|prof|professeur|mme|mr|dr)\s*[:：]?|מורה\s*[:：]", re.IGNORECASE)
+TEACHER_MARKER_PATTERN = re.compile(r"(?:^|\b)(" + "|".join(re.escape(marker) for marker in TEACHER_MARKERS) + r")\s*[:：]?|מורה\s*[:：]", re.IGNORECASE)
 
 
 def _classify(profile: dict[str, Any], headers: list[dict[str, Any]], sheet: Any | None = None) -> dict[str, Any]:
@@ -84,6 +62,8 @@ def _classify(profile: dict[str, Any], headers: list[dict[str, Any]], sheet: Any
 
     if profile["is_empty"]:
         return _item(sheet_name, "ignored", 0.98, False, ["Feuille vide."])
+    if profile["is_probably_metadata"] and _looks_like_constraints_sheet(signals):
+        return _item(sheet_name, "constraints_text", 0.76, True, ["Notes contenant des contraintes; extraction de cours désactivée pour cette feuille."])
     if profile["is_probably_metadata"]:
         return _item(sheet_name, "metadata", 0.95, False, ["Nom de feuille de type notes/source/metadata."])
     if {"class_name", "subject_name", "weekly_hours"}.issubset(roles):
@@ -135,9 +115,9 @@ def _content_signals(sheet_name: str, sheet: Any | None) -> dict[str, Any]:
                     cell_values.append(text)
     folded_values = [fold_key(value) for value in values if normalize_text(value)]
     folded_cells = [fold_key(value) for value in cell_values if normalize_text(value)]
-    availability_markers = sum(1 for value in folded_cells if value in {fold_key(marker) for marker in AVAILABILITY_MARKERS})
-    availability_hints = sum(1 for value in folded_values if any(hint in value for hint in AVAILABILITY_HINTS))
-    constraint_hints = sum(1 for value in folded_values if any(hint in value for hint in CONSTRAINT_HINTS))
+    availability_markers = count_fuzzy_hits(cell_values, AVAILABILITY_MARKERS)
+    availability_hints = count_fuzzy_hits(values, AVAILABILITY_MARKERS)
+    constraint_hints = count_fuzzy_hits(values, CONSTRAINT_MARKERS)
     constraint_sentences = sum(1 for value in folded_values if _looks_like_constraint_text(value))
     teacher_markers = sum(1 for value in cell_values if TEACHER_MARKER_PATTERN.search(value))
     lesson_like_cells = sum(1 for value in cell_values if _looks_like_lesson_cell(value))
@@ -155,9 +135,9 @@ def _content_signals(sheet_name: str, sheet: Any | None) -> dict[str, Any]:
 
 def _looks_like_availability_sheet(profile: dict[str, Any], signals: dict[str, Any]) -> bool:
     grid_shape = profile["day_cells"] >= 2 and profile["non_empty_cells"] >= 4
-    strong_markers = signals["availability_markers"] >= 2 and signals["availability_marker_density"] >= 0.18
+    strong_markers = signals["availability_markers"] >= 2 and signals["availability_marker_density"] >= 0.15
     weak_name_or_header = signals["availability_hints"] >= 1 and signals["availability_markers"] >= 1
-    few_lessons = signals["lesson_like_cells"] <= max(1, signals["availability_markers"] // 3) and signals["teacher_markers"] == 0
+    few_lessons = signals["lesson_like_cells"] <= max(1, signals["availability_markers"] // 3)
     return grid_shape and few_lessons and (strong_markers or weak_name_or_header)
 
 
@@ -178,15 +158,13 @@ def _looks_like_schedule_grid(profile: dict[str, Any], signals: dict[str, Any]) 
 def _looks_like_lesson_cell(value: str) -> bool:
     text = normalize_text(value)
     folded = fold_key(text)
-    if not text or folded in {fold_key(marker) for marker in AVAILABILITY_MARKERS} or _looks_like_constraint_text(folded):
+    if not text or looks_availability_like(text) or _looks_like_constraint_text(folded):
         return False
+    if looks_lesson_like(text):
+        return True
     parsed, warnings = parse_lesson_cell(text)
     return bool(parsed.get("teacher") or parsed.get("class_name") or (TEACHER_MARKER_PATTERN.search(text) and parsed.get("subject")) or (parsed.get("subject") and not warnings and len(text.split()) >= 2))
 
 
 def _looks_like_constraint_text(folded: str) -> bool:
-    return bool(
-        any(hint in folded for hint in CONSTRAINT_HINTS)
-        or re.search(r"\b(?:pas|not)\s+(?:disponible|available)\b", folded)
-        or "לא זמין" in folded
-    )
+    return looks_constraint_like(folded)

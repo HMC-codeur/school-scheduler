@@ -12,6 +12,13 @@ from backend.data.store import get_store
 from backend.main import app
 from backend.services.imports.intelligence import analyze_import_content
 from backend.services.imports.intelligence.orchestrator import clear_import_drafts
+from backend.services.imports.intelligence.school_terms import (
+    looks_availability_like,
+    looks_constraint_like,
+    looks_lesson_like,
+    looks_noise_like,
+    looks_schedule_grid_lesson_candidate,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "imports"
@@ -121,6 +128,89 @@ def test_availability_grid_does_not_produce_lesson_candidates() -> None:
     assert payload["normalized_preview"]["schedule_grid_preview"] == []
 
 
+def test_fuzzy_hebrew_availability_typo_detection() -> None:
+    assert looks_availability_like("זמינוץ")
+    assert looks_availability_like("זמינותת")
+    assert looks_availability_like("לא זמינן")
+
+    payload = analyze_workbook(
+        {
+            "זמינוץ מורים": [
+                ["מורה", "ראשון", "שני", "שלישי"],
+                ["כהן", "זמינוץ", "לא זמינן", "זמינותת"],
+                ["לוי", "לא זמינן", "זמינוץ", "זמינותת"],
+            ]
+        },
+        filename="hebrew_availability_typos.xlsx",
+    )
+
+    assert payload["sheet_classifications"][0]["sheet_type"] in {"teacher_availability", "availability_table"}
+    assert payload["summary"]["lesson_candidates_count"] == 0
+
+
+def test_fuzzy_english_french_availability_typo_detection() -> None:
+    assert looks_availability_like("disponibilite")
+    assert looks_availability_like("availlable")
+    assert looks_availability_like("unavailble")
+
+    payload = analyze_workbook(
+        {
+            "Teacher disponibilite": [
+                ["teacher", "Monday", "Tuesday", "Wednesday"],
+                ["Cohen", "availlable", "unavailble", "disponibilite"],
+                ["Levi", "unavailble", "availlable", "disponibilite"],
+            ]
+        },
+        filename="latin_availability_typos.xlsx",
+    )
+
+    assert payload["sheet_classifications"][0]["sheet_type"] in {"teacher_availability", "availability_table"}
+    assert payload["summary"]["lesson_candidates_count"] == 0
+
+
+def test_fuzzy_constraints_typo_detection() -> None:
+    assert looks_constraint_like("contraint")
+    assert looks_constraint_like("contrainte")
+
+    payload = analyze_workbook(
+        {
+            "Contraint notes": [
+                ["Type", "Target", "Comment"],
+                ["teacher_unavailable", "Mme Cohen", "contraint: not availlable Monday morning"],
+                ["class_max_daily_hours", "6eA", "contrainte forte"],
+            ]
+        },
+        filename="constraint_typos.xlsx",
+    )
+
+    assert payload["sheet_classifications"][0]["sheet_type"] in {"constraints", "constraints_table", "constraints_text"}
+    assert payload["summary"]["lesson_candidates_count"] == 0
+
+
+def test_free_text_notes_are_not_extracted_as_lessons() -> None:
+    assert looks_noise_like("Note: vérifier avec la direction avant publication")
+    assert not looks_lesson_like("Note: vérifier avec la direction avant publication")
+
+    payload = analyze_workbook(
+        {
+            "Planning notes": [
+                ["שיעור", "ראשון", "שני", "שלישי"],
+                ["08:00-08:45", "Note: vérifier avec la direction avant publication", "TODO appeler les parents", ""],
+                ["09:00-09:45", "", "Remarque opérationnelle seulement", ""],
+            ]
+        },
+        filename="grid_shaped_notes.xlsx",
+    )
+
+    assert payload["summary"]["lesson_candidates_count"] == 0
+    assert payload["normalized_preview"]["lesson_candidates"] == []
+
+
+def test_real_lesson_cells_still_look_lesson_like() -> None:
+    assert looks_lesson_like("מתמטיקה ז1\nמורה: כהן\nחדר: 101")
+    assert looks_lesson_like("Mathématiques Mme Cohen 6eA")
+
+
 def test_constraints_sheet_is_not_schedule_grid() -> None:
     payload = analyze_workbook(
         {
@@ -214,6 +304,67 @@ def test_real_schedule_grid_still_produces_lesson_candidates() -> None:
     assert payload["summary"]["lesson_candidates_count"] >= 3
 
 
+def test_repeated_lesson_cells_in_schedule_grid_are_preserved() -> None:
+    payload = analyze_workbook(
+        {
+            "מערכת שעות": [
+                ["שיעור", "ראשון", "שני", "שלישי"],
+                ["08:00-08:45", "גמרא עיון", "מתמטיקה 5 יחידות", "מדעי המחשב"],
+                ["09:00-09:45", "גמרא עיון", "מתמטיקה 5 יחידות", "מדעי המחשב"],
+            ]
+        },
+        filename="repeated_lessons.xlsx",
+    )
+    candidates = payload["normalized_preview"]["lesson_candidates"]
+
+    assert payload["sheet_classifications"][0]["sheet_type"] == "schedule_grid"
+    assert sum(1 for item in candidates if item["raw_cell"] == "גמרא עיון") == 2
+    assert sum(1 for item in candidates if item["raw_cell"] == "מתמטיקה 5 יחידות") == 2
+    assert sum(1 for item in candidates if item["raw_cell"] == "מדעי המחשב") == 2
+
+
+def test_double_period_lessons_are_not_deduplicated_away() -> None:
+    payload = analyze_workbook(
+        {
+            "Planning": [
+                ["Period", "Monday", "Tuesday"],
+                ["08:00-08:45", "English 5 units", "Computer Science"],
+                ["09:00-09:45", "English 5 units", "Computer Science"],
+            ]
+        },
+        filename="double_period_lessons.xlsx",
+    )
+    candidates = payload["normalized_preview"]["lesson_candidates"]
+    english = [item for item in candidates if item["raw_cell"] == "English 5 units"]
+
+    assert len(english) == 2
+    assert {(item["source_trace"]["row"], item["source_trace"]["column"]) for item in english} == {(2, "2"), (3, "2")}
+
+
+def test_status_values_inside_schedule_grid_are_still_blocked() -> None:
+    assert looks_schedule_grid_lesson_candidate("גמרא עיון", has_timetable_context=True)
+    assert not looks_schedule_grid_lesson_candidate("זמין", has_timetable_context=True)
+    assert not looks_schedule_grid_lesson_candidate("לא זמין", has_timetable_context=True)
+    assert not looks_schedule_grid_lesson_candidate("available", has_timetable_context=True)
+    assert not looks_schedule_grid_lesson_candidate("unavailable", has_timetable_context=True)
+
+    payload = analyze_workbook(
+        {
+            "מערכת שעות": [
+                ["שיעור", "ראשון", "שני", "שלישי", "רביעי"],
+                ["08:00-08:45", "גמרא עיון", "זמין", "אנגלית 5 יחידות", "אנגלית 5 יחידות\nמורה: זאפ"],
+                ["09:00-09:45", "מתמטיקה 5 יחידות", "מדעי המחשב", "available", "מתמטיקה 5 יחידות\nמורה: בס"],
+                ["10:00-10:45", "פיזיקה", "כימיה", "היסטוריה", "ספרות"],
+            ]
+        },
+        filename="schedule_grid_with_status_values.xlsx",
+    )
+    raw_cells = {item["raw_cell"] for item in payload["normalized_preview"]["lesson_candidates"]}
+
+    assert {"גמרא עיון", "מדעי המחשב"}.issubset(raw_cells)
+    assert not (raw_cells & {"זמין", "לא זמין", "available", "unavailable"})
+
+
 def test_ultra_stress_availability_and_constraints_do_not_create_fake_lessons() -> None:
     workbook_path = Path(".tmp/ultra_complex_school_excel_stress_test.xlsx")
     if workbook_path.exists():
@@ -222,9 +373,13 @@ def test_ultra_stress_availability_and_constraints_do_not_create_fake_lessons() 
         payload = analyze_workbook(
             {
                 "02 מערכת שעות גריד": [
-                    ["שיעור", "ראשון", "שני", "שלישי"],
-                    ["08:00-08:45", "מתמטיקה ז1\nמורה: כהן\nחדר: 101", "אנגלית ח2\nמורה: לוי\nחדר: 202", ""],
-                    ["09:00-09:45", "מדעים ז1\nמורה: כהן\nחדר: מעבדה", "", "עברית ח2\nמורה: לוי\nחדר: 204"],
+                    ["שיעור", "ראשון", "שני", "שלישי", "רביעי", "חמישי"],
+                    ["08:00-08:45", "גמרא עיון", "מתמטיקה 5 יחידות", "מדעי המחשב", "אנגלית 5 יחידות", "תנך"],
+                    ["09:00-09:45", "גמרא עיון", "מתמטיקה 5 יחידות", "מדעי המחשב", "אנגלית 5 יחידות", "תנך"],
+                    ["10:00-10:45", "פיזיקה", "כימיה", "היסטוריה", "ספרות", "אזרחות"],
+                    ["11:00-11:45", "פיזיקה", "כימיה", "היסטוריה", "ספרות", "אזרחות"],
+                    ["12:00-12:45", "ספורט", "עברית", "צרפתית", "ביולוגיה", "אמנות"],
+                    ["13:00-13:45", "ספורט", "עברית", "צרפתית", "ביולוגיה", "אמנות"],
                 ],
                 "03 זמינות מורים": [
                     ["מורה", "ראשון", "שני", "שלישי", "רביעי"],
@@ -246,7 +401,7 @@ def test_ultra_stress_availability_and_constraints_do_not_create_fake_lessons() 
     assert classifications["02 מערכת שעות גריד"] == "schedule_grid"
     assert classifications["03 זמינות מורים"] in {"teacher_availability", "availability_table"}
     assert classifications["04 Contraintes"] in {"constraints", "constraints_table", "constraints_text"}
-    assert payload["summary"]["lesson_candidates_count"] >= 3
+    assert payload["summary"]["lesson_candidates_count"] > 25
     assert not any((item.get("subject") or item.get("raw_cell")) in marker_subjects for item in payload["normalized_preview"]["lesson_candidates"])
 
 

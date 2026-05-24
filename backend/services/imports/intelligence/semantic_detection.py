@@ -6,6 +6,7 @@ from typing import Any
 from backend.services.imports.intelligence.diagnostics import diagnostic
 from backend.services.imports.intelligence.models import BrainResult, ImportContext, source_trace
 from backend.services.imports.intelligence.normalizers import day_key, is_time_like, looks_like_class_token, normalize_text, parse_lesson_cell
+from backend.services.imports.intelligence.school_terms import looks_constraint_like, looks_schedule_grid_lesson_candidate
 
 
 class SemanticDetectionBrain:
@@ -181,6 +182,8 @@ def _extract_column_day_grid(sheet) -> tuple[list[dict[str, Any]], list[dict[str
                     raw_cell = normalize_text(sheet.rows.get(row_index, {}).get(column, ""))
                     if not raw_cell or day_key(raw_cell) or is_time_like(raw_cell) or looks_like_class_token(raw_cell):
                         continue
+                    if not looks_schedule_grid_lesson_candidate(raw_cell, has_timetable_context=True):
+                        continue
                     seen_cells.add((row_index, column))
                     parsed, warnings = parse_lesson_cell(raw_cell)
                     class_name = parsed.get("class_name") or _class_for_column(sheet, header_row, row_index, column)
@@ -253,7 +256,7 @@ def _grid_cell_confidence(class_name: str | None, day: str | None, time: str | N
 def _extract_constraints(sheet, entities: dict[str, Any], seen: dict[str, set[str]]) -> None:
     for row_index, row in sheet.rows.items():
         text = " ".join(normalize_text(value) for value in row.values() if normalize_text(value))
-        if len(text) >= 12 and re.search(r"pas|avoid|éviter|indisponible|contrainte|לא זמין|אסור", text, re.IGNORECASE):
+        if len(text) >= 12 and looks_constraint_like(text):
             entities["constraints"].append({"text": text, "confidence": 0.55, "source_trace": source_trace(sheet.name, row_index, None, text, 0.55)})
 
 
