@@ -322,20 +322,27 @@ function DirectorResultCard({
     gridMessage = gridValidation.error;
   } else if (gridValidation && validCount != null) {
     gridMessage = hasRejectedCandidates
-      ? `נבדקו ${validCount + rejectedCount} שיעורים: ${validCount} תקינים, ${rejectedCount} דורשים תיקון.`
+      ? `שורות שנעצרו לבדיקה: ${rejectedCount}`
       : "כל השיעורים שנבדקו תקינים.";
   } else if (hasScheduleGrid) {
     gridMessage = "מצאנו מערכת שעות קיימת בתוך קובץ האקסל. ניתן לבדוק את השיעורים שזוהו לפני ייבוא.";
   }
-  const summaryMessage = gridValidation
+  const summaryMessages = gridValidation
     ? hasRejectedCandidates
-      ? "יש שורות שדורשות תיקון לפני ייבוא אמיתי."
+      ? [
+          "המערכת זיהתה שורות שאינן מוכנות לייבוא אוטומטי.",
+          "חלק מהשורות נראות כמו זמינות מורים, הערות או מידע חסר — ולכן הן נעצרו לבדיקה במקום להיכנס למערכת כשיעורים.",
+          "ניתן לפתוח את השורות שדורשות בדיקה, לאשר, להתעלם או לתקן אותן לפני ייבוא אמיתי.",
+          validCount > 0 ? "שיעורים תקינים מוכנים לשלב הבא לאחר אישור אנושי." : "",
+        ].filter(Boolean)
       : gridValidation.error
-        ? "בדיקת השיעורים לא הושלמה. הפרטים הטכניים זמינים למפתחים."
-        : "כל השיעורים שנבדקו תקינים."
-    : hasScheduleGrid
-      ? "הייבוא האמיתי עדיין כבוי עד בדיקה ואישור."
-      : "אפשר לעבור על הסיכום לפני כל ייבוא אמיתי.";
+        ? ["בדיקת השיעורים לא הושלמה. הפרטים הטכניים זמינים למפתחים."]
+        : ["כל השיעורים שנבדקו תקינים.", "שיעורים תקינים מוכנים לשלב הבא לאחר אישור אנושי."]
+    : [
+        hasScheduleGrid
+          ? "הייבוא האמיתי עדיין כבוי עד בדיקה ואישור."
+          : "אפשר לעבור על הסיכום לפני כל ייבוא אמיתי.",
+      ];
 
   return (
     <section className="director-result-card">
@@ -360,7 +367,11 @@ function DirectorResultCard({
         ))}
       </div>
       {gridMessage ? <div className={gridValidation?.error || hasRejectedCandidates ? "notice warning" : "notice"}>{gridMessage}</div> : null}
-      <div className={hasRejectedCandidates ? "notice warning" : "notice"}>{summaryMessage}</div>
+      <div className={hasRejectedCandidates ? "notice warning" : "notice"}>
+        {summaryMessages.map((message) => (
+          <p key={message}>{message}</p>
+        ))}
+      </div>
     </section>
   );
 }
@@ -561,7 +572,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                 <span>{isScheduleGridBlocked(normalized) ? "מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי." : "הקובץ התקבל, אך לא זוהתה בו טבלה שניתן לייבא."}</span>
               </div>
             ) : null}
-            {normalized.errors.length ? <div className="notice danger">יש שורות שדורשות תיקון לפני ייבוא אמיתי.</div> : null}
+            {normalized.errors.length ? <div className="notice warning">המערכת זיהתה שורות שאינן מוכנות לייבוא אוטומטי.</div> : null}
             {!normalized.errors.length && gridValidation && !gridValidation.error && !gridValidationCounts(gridValidation).rejectedCount ? <div className="notice">כל השיעורים שנבדקו תקינים.</div> : null}
             {commitResult?.success ? <div className="notice">{commitResult.message}</div> : null}
             {rows.length || availabilityRows.length || constraintRows.length ? (
@@ -629,7 +640,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                   </button>
                 </div>
                 <button className="secondary-button director-toggle" type="button" onClick={() => setShowCandidateDetails((current) => !current)}>
-                  {showCandidateDetails ? "הסתר שורות שדורשות בדיקה" : "הצג שורות שדורשות בדיקה"}
+                  {showCandidateDetails ? "הסתר שורות שדורשות בדיקה" : "פתח שורות לבדיקה"}
                 </button>
                 {showCandidateDetails ? (
                   <div className="stack-form">
