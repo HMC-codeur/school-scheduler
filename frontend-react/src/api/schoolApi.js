@@ -111,6 +111,13 @@ export function commitExcelImport(payload) {
   });
 }
 
+export function validateGridCandidates(candidates) {
+  return apiRequest("/imports/validate-grid-candidates", {
+    method: "POST",
+    body: JSON.stringify({ candidates }),
+  });
+}
+
 export function repairSchedule(payload) {
   return apiRequest("/schedule/repair", {
     method: "POST",

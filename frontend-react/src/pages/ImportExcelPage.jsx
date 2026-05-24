@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { commitExcelImport, loadRepairDemo, previewExcel } from "../api/schoolApi.js";
+import { commitExcelImport, loadRepairDemo, previewExcel, validateGridCandidates } from "../api/schoolApi.js";
 import { PageHeader } from "../components/PageHeader.jsx";
 import { EmptyState } from "../components/EmptyState.jsx";
 
@@ -207,11 +207,105 @@ function candidateStatusLabel(status) {
   return "needs review";
 }
 
+function reviewedGridCandidatePayload(candidate, index, review) {
+  const classGroup = String(candidateValue(candidate, ["class_name", "class_group", "class", "group_name", "group"], ""));
+  const rawCell = String(candidateValue(candidate, ["raw_cell", "original_text", "original_cell_text", "cell_text", "text"], ""));
+  const slot = String(candidateValue(candidate, ["time", "slot", "slot_label", "period"], ""));
+  const subject = String(review?.subject ?? candidateValue(candidate, ["subject", "subject_name", "detected_subject"], ""));
+  const teacher = String(review?.teacher ?? candidateValue(candidate, ["teacher", "teacher_name", "detected_teacher"], ""));
+  return {
+    status: review?.status === "ignored" ? "ignored" : "accepted",
+    class_name: classGroup,
+    class_group: classGroup,
+    day: String(candidateValue(candidate, ["day"], "")),
+    slot,
+    time: String(candidateValue(candidate, ["time"], slot)),
+    subject,
+    subject_name: subject,
+    teacher,
+    teacher_name: teacher,
+    confidence: candidateConfidence(candidate),
+    raw_cell: rawCell,
+    original_text: rawCell,
+    source_trace: asObject(candidate).source_trace,
+    review_index: index,
+  };
+}
+
+function formatValidationIssue(issue) {
+  const safe = asObject(issue);
+  const parts = [];
+  if (safe.candidate_index != null) parts.push(`candidat ${Number(safe.candidate_index) + 1}`);
+  if (safe.row != null || safe.column != null) parts.push(`cellule ${safe.row ?? "?"}/${safe.column ?? "?"}`);
+  parts.push(safe.message || safe.code || String(issue));
+  if (safe.field) parts.push(`champ ${safe.field}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
+function rejectedCandidateText(item) {
+  const safe = asObject(item);
+  const candidate = asObject(safe.candidate);
+  const errors = asArray(safe.errors).map(formatValidationIssue).join(" · ");
+  const index = safe.index != null ? `Candidat ${Number(safe.index) + 1}` : "Candidat rejeté";
+  const context = [
+    candidate.class_name || candidate.class_group,
+    candidate.day,
+    candidate.slot || candidate.time,
+    candidate.raw_cell || candidate.original_text,
+  ].filter(Boolean).join(" · ");
+  return `${index}${context ? ` · ${context}` : ""}: ${errors || "Erreur de validation."}`;
+}
+
+function GridValidationResult({ result }) {
+  if (!result) {
+    return (
+      <div className="notice">
+        Import réel désactivé pour le moment.
+      </div>
+    );
+  }
+  if (result.error) {
+    return <div className="notice danger">{result.error}</div>;
+  }
+  const summary = asObject(result.summary);
+  const validCount = summary.valid_candidates ?? asArray(result.valid_candidates).length;
+  const rejectedCount = summary.rejected_candidates ?? asArray(result.rejected_candidates).length;
+  const warnings = asArray(result.warnings);
+  const blockingErrors = asArray(result.blocking_errors);
+  const rejected = asArray(result.rejected_candidates);
+  return (
+    <div className="grid-validation-result">
+      <div className={blockingErrors.length || rejected.length ? "notice warning" : "notice"}>
+        <strong>{blockingErrors.length || rejected.length ? "Validation dry-run terminée avec rejets." : "Validation dry-run réussie."}</strong>
+        <span> Aucun cours n’est encore importé.</span>
+      </div>
+      <div className="stat-grid compact">
+        <article className="stat-card"><span>Candidats valides</span><strong>{validCount}</strong></article>
+        <article className="stat-card"><span>Candidats rejetés</span><strong>{rejectedCount}</strong></article>
+        <article className="stat-card"><span>Warnings</span><strong>{warnings.length}</strong></article>
+        <article className="stat-card"><span>Blocages</span><strong>{blockingErrors.length}</strong></article>
+      </div>
+      <div className="notice">Import réel désactivé pour le moment.</div>
+      {warnings.map((warning, index) => (
+        <div className="notice warning" key={`grid-warning-${index}`}>{formatValidationIssue(warning)}</div>
+      ))}
+      {blockingErrors.map((issue, index) => (
+        <div className="notice danger" key={`grid-blocking-${index}`}>{formatValidationIssue(issue)}</div>
+      ))}
+      {rejected.map((item, index) => (
+        <div className="notice danger" key={`grid-rejected-${index}`}>{rejectedCandidateText(item)}</div>
+      ))}
+    </div>
+  );
+}
+
 export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, language }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [commitResult, setCommitResult] = useState(null);
   const [candidateReviews, setCandidateReviews] = useState({});
+  const [gridValidation, setGridValidation] = useState(null);
+  const [gridValidationLoading, setGridValidationLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const normalized = preview ? normalizeImportResult(preview) : null;
@@ -234,6 +328,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       setPreview(result);
       setCommitResult(null);
       setCandidateReviews({});
+      setGridValidation(null);
       setImportPreview(normalizeImportResult(result));
     } catch (err) {
       setError(err.message || t.error);
@@ -281,11 +376,32 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       };
       setPreview(demoPreview);
       setCandidateReviews({});
+      setGridValidation(null);
       setImportPreview(demoPreview);
     } catch (err) {
       setError(err.message || t.error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const validateReviewedCandidates = async () => {
+    if (!scheduleGridRows.length) return;
+    setGridValidationLoading(true);
+    setGridValidation(null);
+    setError("");
+    try {
+      const candidates = scheduleGridRows.map((candidate, index) => {
+        const key = candidateKey(candidate, index);
+        const review = candidateReviews[key] || defaultCandidateReview(candidate);
+        return reviewedGridCandidatePayload(candidate, index, review);
+      });
+      const result = await validateGridCandidates(candidates);
+      setGridValidation(result);
+    } catch (err) {
+      setGridValidation({ error: err.message || t.error });
+    } finally {
+      setGridValidationLoading(false);
     }
   };
 
@@ -396,8 +512,13 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                   <div>
                     <h3>Grille planning en aperçu</h3>
                     <p>Ces cours sont détectés depuis une grille. Confirmez-les avant import réel.</p>
+                    <p>Validation dry-run uniquement. Aucun cours n’est encore importé.</p>
                   </div>
+                  <button className="primary-button" disabled={gridValidationLoading} type="button" onClick={validateReviewedCandidates}>
+                    {gridValidationLoading ? "Validation..." : "Valider les candidats"}
+                  </button>
                 </div>
+                <GridValidationResult result={gridValidation} />
                 <div className="table-wrap">
                   <table className="review-table">
                     <thead>
@@ -420,6 +541,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                         const confidence = candidateConfidence(candidate);
                         const lowConfidence = isLowConfidenceCandidate(candidate);
                         const updateReview = (patch) => {
+                          setGridValidation(null);
                           setCandidateReviews((current) => ({
                             ...current,
                             [key]: { ...defaultCandidateReview(candidate), ...current[key], ...patch },

@@ -369,6 +369,21 @@ button {
   color: #b42318;
 }
 
+.notice.warning {
+  border-color: #f4d58d;
+  background: #fff8e8;
+  color: #8a540d;
+}
+
+.grid-validation-result {
+  display: grid;
+  gap: 10px;
+}
+
+.grid-validation-result .notice {
+  margin-bottom: 0;
+}
+
 .toolbar {
   display: flex;
   gap: 12px;
