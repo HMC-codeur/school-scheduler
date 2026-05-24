@@ -81,10 +81,10 @@ function previewSummary(normalized) {
     ["כיתות", summary.classes_count ?? summary.classes ?? 0],
     ["מורים", summary.teachers_count ?? summary.teachers ?? 0],
     ["מקצועות", summary.subjects_count ?? summary.subjects ?? 0],
-    ["Besoins", summary.requirements_count ?? 0],
-    ["Disponibilités", summary.availability_count ?? 0],
-    ["Contraintes", summary.constraints_count ?? 0],
-    ["Grille", summary.schedule_grid_preview_count ?? summary.lesson_candidates_count ?? 0],
+    ["צרכים שבועיים", summary.requirements_count ?? 0],
+    ["זמינות", summary.availability_count ?? 0],
+    ["אילוצים", summary.constraints_count ?? 0],
+    ["גריד מערכת שעות", summary.schedule_grid_preview_count ?? summary.lesson_candidates_count ?? 0],
     ["שורות לא תקינות", asArray(normalized?.warnings).length + asArray(normalized?.errors).length + asArray(normalized?.diagnostics).length],
   ];
 }
@@ -148,10 +148,10 @@ function isEmptyImportAnalysis(normalized) {
 function detectedDataMessage(normalized) {
   if (!normalized) return "";
   if (isScheduleGridBlocked(normalized)) {
-    return "Grille planning analysée en aperçu. Validation humaine obligatoire avant import.";
+    return "מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי.";
   }
   if (normalized.status === "needs_review" && normalized.has_importable_data) {
-    return "Données détectées, validation humaine recommandée.";
+    return "זוהו נתונים, מומלץ לבצע בדיקה ידנית לפני ייבוא אמיתי.";
   }
   return "";
 }
@@ -201,10 +201,10 @@ function defaultCandidateReview(candidate) {
 }
 
 function candidateStatusLabel(status) {
-  if (status === "accepted") return "accepted preview";
-  if (status === "ignored") return "ignored";
-  if (status === "low_confidence") return "low confidence";
-  return "needs review";
+  if (status === "accepted") return "אושר לתצוגה מקדימה";
+  if (status === "ignored") return "התעלם";
+  if (status === "low_confidence") return "אמינות נמוכה";
+  return "דורש בדיקה";
 }
 
 function reviewedGridCandidatePayload(candidate, index, review) {
@@ -232,13 +232,33 @@ function reviewedGridCandidatePayload(candidate, index, review) {
   };
 }
 
+const VALIDATION_MESSAGE_HEBREW = {
+  missing_class_or_group: "כיתה / קבוצה חובה.",
+  missing_subject: "מקצוע חובה.",
+  missing_day: "יום חובה או לא מזוהה.",
+  invalid_day: "יום חובה או לא מזוהה.",
+  missing_slot: "שעה חובה או לא מזוהה.",
+  invalid_slot: "שעה חובה או לא מזוהה.",
+  "Classe ou groupe obligatoire.": "כיתה / קבוצה חובה.",
+  "Matière obligatoire.": "מקצוע חובה.",
+};
+
+function validationMessageText(issue) {
+  const safe = asObject(issue);
+  return VALIDATION_MESSAGE_HEBREW[safe.code]
+    || VALIDATION_MESSAGE_HEBREW[safe.message]
+    || safe.message
+    || safe.code
+    || String(issue);
+}
+
 function formatValidationIssue(issue) {
   const safe = asObject(issue);
   const parts = [];
-  if (safe.candidate_index != null) parts.push(`candidat ${Number(safe.candidate_index) + 1}`);
-  if (safe.row != null || safe.column != null) parts.push(`cellule ${safe.row ?? "?"}/${safe.column ?? "?"}`);
-  parts.push(safe.message || safe.code || String(issue));
-  if (safe.field) parts.push(`champ ${safe.field}`);
+  if (safe.candidate_index != null) parts.push(`מועמד ${Number(safe.candidate_index) + 1}`);
+  if (safe.row != null || safe.column != null) parts.push(`תא ${safe.row ?? "?"}/${safe.column ?? "?"}`);
+  parts.push(validationMessageText(issue));
+  if (safe.field) parts.push(`שדה ${safe.field}`);
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -246,21 +266,21 @@ function rejectedCandidateText(item) {
   const safe = asObject(item);
   const candidate = asObject(safe.candidate);
   const errors = asArray(safe.errors).map(formatValidationIssue).join(" · ");
-  const index = safe.index != null ? `Candidat ${Number(safe.index) + 1}` : "Candidat rejeté";
+  const index = safe.index != null ? `מועמד ${Number(safe.index) + 1}` : "מועמד שנדחה";
   const context = [
     candidate.class_name || candidate.class_group,
     candidate.day,
     candidate.slot || candidate.time,
     candidate.raw_cell || candidate.original_text,
   ].filter(Boolean).join(" · ");
-  return `${index}${context ? ` · ${context}` : ""}: ${errors || "Erreur de validation."}`;
+  return `${index}${context ? ` · ${context}` : ""}: ${errors || "שגיאת אימות."}`;
 }
 
 function GridValidationResult({ result }) {
   if (!result) {
     return (
       <div className="notice">
-        Import réel désactivé pour le moment.
+        ייבוא אמיתי עדיין כבוי בשלב זה.
       </div>
     );
   }
@@ -276,16 +296,15 @@ function GridValidationResult({ result }) {
   return (
     <div className="grid-validation-result">
       <div className={blockingErrors.length || rejected.length ? "notice warning" : "notice"}>
-        <strong>{blockingErrors.length || rejected.length ? "Validation dry-run terminée avec rejets." : "Validation dry-run réussie."}</strong>
-        <span> Aucun cours n’est encore importé.</span>
+        <strong>{blockingErrors.length || rejected.length ? "בדיקת המועמדים הסתיימה עם שורות שדורשות תיקון. אף שיעור עדיין לא יובא." : "בדיקה בלבד — אף שיעור עדיין לא יובא למערכת."}</strong>
       </div>
       <div className="stat-grid compact">
-        <article className="stat-card"><span>Candidats valides</span><strong>{validCount}</strong></article>
-        <article className="stat-card"><span>Candidats rejetés</span><strong>{rejectedCount}</strong></article>
-        <article className="stat-card"><span>Warnings</span><strong>{warnings.length}</strong></article>
-        <article className="stat-card"><span>Blocages</span><strong>{blockingErrors.length}</strong></article>
+        <article className="stat-card"><span>שיעורים תקינים</span><strong>{validCount}</strong></article>
+        <article className="stat-card"><span>שורות שנדחו</span><strong>{rejectedCount}</strong></article>
+        <article className="stat-card"><span>אזהרות</span><strong>{warnings.length}</strong></article>
+        <article className="stat-card"><span>שגיאות חוסמות</span><strong>{blockingErrors.length}</strong></article>
       </div>
-      <div className="notice">Import réel désactivé pour le moment.</div>
+      <div className="notice">ייבוא אמיתי עדיין כבוי בשלב זה.</div>
       {warnings.map((warning, index) => (
         <div className="notice warning" key={`grid-warning-${index}`}>{formatValidationIssue(warning)}</div>
       ))}
@@ -406,18 +425,18 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
   };
 
   return (
-    <>
+    <div className="import-excel-page" dir="rtl">
       <PageHeader
         eyebrow="Excel"
-        title="יבוא Planning Excel"
-        description="העלה קובץ קיים מ-Excel/Mashov/Shahaf/EduPage וקבל תצוגה מקדימה לפני אבחון."
+        title="ייבוא מערכת שעות מאקסל"
+        description="העלה קובץ Excel קיים, והמערכת תנתח את הכיתות, המורים, המקצועות, הצרכים והשגיאות לפני כל ייבוא אמיתי."
       />
       <section className="upload-zone">
         <form onSubmit={submit}>
           <input type="file" accept=".xlsx,.xlsm,.csv" onChange={(event) => setFile(event.target.files?.[0] || null)} />
           <div className="action-row">
             <button className="primary-button" disabled={!file || loading} type="submit">בדוק קובץ</button>
-            <button className="secondary-button" disabled={loading} type="button" onClick={loadDemo}>Charger démo réparation</button>
+            <button className="secondary-button" disabled={loading} type="button" onClick={loadDemo}>טען דמו תיקון</button>
           </div>
         </form>
         {loading ? <div className="notice">{t.loading}</div> : null}
@@ -432,20 +451,20 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
           </section>
           <section className="panel">
             <div className="section-head">
-              <h3>Preview</h3>
+              <h3>תצוגה מקדימה</h3>
               <div className="action-row">
                 <button className="primary-button" disabled={(!normalized.can_commit && !normalized.can_apply) || emptyImportAnalysis || loading} type="button" onClick={importPreview}>
-                  {language === "he" ? "ייבא Planning" : "Importer"}
+                  ייבוא אמיתי
                 </button>
                 <button className="secondary-button" type="button" onClick={() => navigate("diagnostic")}>{t.runDiagnostic}</button>
               </div>
             </div>
-            {hasMinimalResponse ? <div className="notice">Analyse reçue. Aperçu minimal disponible.</div> : null}
+            {hasMinimalResponse ? <div className="notice">הניתוח התקבל. תצוגה מקדימה בסיסית זמינה.</div> : null}
             {productLimitMessage ? <div className="notice">{productLimitMessage}</div> : null}
             {emptyImportAnalysis ? (
               <div className="notice danger">
-                <strong>Aucune donnée importable détectée.</strong>
-                <span>{isScheduleGridBlocked(normalized) ? "La grille est reconnue, mais son extraction automatique n’est pas encore disponible." : "Le fichier a été reçu, mais aucune table exploitable n’a été reconnue."}</span>
+                <strong>לא זוהו נתונים שניתן לייבא.</strong>
+                <span>{isScheduleGridBlocked(normalized) ? "מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי." : "הקובץ התקבל, אך לא זוהתה בו טבלה שניתן לייבא."}</span>
               </div>
             ) : null}
             <div className="schedule-item">
@@ -460,7 +479,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             {commitResult?.success ? <div className="notice">{commitResult.message}</div> : null}
             {rows.length ? (
               <section className="stack-form">
-                <h3>Besoins horaires détectés</h3>
+                <h3>צרכים שבועיים שזוהו</h3>
                 {rows.slice(0, 12).map((lesson, index) => {
                   const safeLesson = asObject(lesson);
                   return (
@@ -476,7 +495,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             ) : null}
             {availabilityRows.length ? (
               <section className="stack-form">
-                <h3>Disponibilités professeurs détectées</h3>
+                <h3>זמינות מורים שזוהתה</h3>
                 {availabilityRows.slice(0, 12).map((availability, index) => {
                   const safeAvailability = asObject(availability);
                   return (
@@ -492,7 +511,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             ) : null}
             {constraintRows.length ? (
               <section className="stack-form">
-                <h3>Contraintes détectées</h3>
+                <h3>אילוצים שזוהו</h3>
                 {constraintRows.slice(0, 12).map((constraint, index) => {
                   const safeConstraint = asObject(constraint);
                   return (
@@ -510,12 +529,13 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
               <section className="stack-form schedule-grid-review">
                 <div className="section-head">
                   <div>
-                    <h3>Grille planning en aperçu</h3>
-                    <p>Ces cours sont détectés depuis une grille. Confirmez-les avant import réel.</p>
-                    <p>Validation dry-run uniquement. Aucun cours n’est encore importé.</p>
+                    <h3>מערכת שעות בתצוגה מקדימה</h3>
+                    <p>מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי.</p>
+                    <p>השיעורים הבאים זוהו מתוך הגריד. ניתן לאשר, להתעלם או לתקן לפני ייבוא אמיתי.</p>
+                    <p>בדיקה בלבד — אף שיעור עדיין לא יובא למערכת.</p>
                   </div>
                   <button className="primary-button" disabled={gridValidationLoading} type="button" onClick={validateReviewedCandidates}>
-                    {gridValidationLoading ? "Validation..." : "Valider les candidats"}
+                    {gridValidationLoading ? "מאמת..." : "אמת שיעורים שזוהו"}
                   </button>
                 </div>
                 <GridValidationResult result={gridValidation} />
@@ -523,15 +543,15 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                   <table className="review-table">
                     <thead>
                       <tr>
-                        <th>Statut</th>
-                        <th>Classe / groupe</th>
-                        <th>Jour</th>
-                        <th>Créneau</th>
-                        <th>Cellule originale</th>
-                        <th>Matière détectée</th>
-                        <th>Prof détecté</th>
-                        <th>Confiance</th>
-                        <th>Actions</th>
+                        <th>סטטוס</th>
+                        <th>כיתה / קבוצה</th>
+                        <th>יום</th>
+                        <th>שעה</th>
+                        <th>הטקסט המקורי</th>
+                        <th>מקצוע שזוהה</th>
+                        <th>מורה שזוהה</th>
+                        <th>רמת אמון</th>
+                        <th>פעולות</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -551,7 +571,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                           <tr className={`review-row ${review.status}`} key={key}>
                             <td>
                               <span className={`review-status ${review.status}`}>{candidateStatusLabel(review.status)}</span>
-                              {lowConfidence ? <span className="review-warning">À vérifier</span> : null}
+                              {lowConfidence ? <span className="review-warning">דורש בדיקה</span> : null}
                             </td>
                             <td>{candidateValue(candidate, ["class_name", "class", "group_name", "group"], t.unavailable)}</td>
                             <td>{candidateValue(candidate, ["day"], t.unavailable)}</td>
@@ -559,7 +579,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                             <td className="raw-cell">{candidateValue(candidate, ["raw_cell", "original_cell_text", "cell_text", "text"], t.unavailable)}</td>
                             <td>
                               <input
-                                aria-label="Modifier la matière détectée"
+                                aria-label="עריכת המקצוע שזוהה"
                                 disabled={review.status === "ignored"}
                                 value={review.subject}
                                 onChange={(event) => updateReview({ subject: event.target.value })}
@@ -567,7 +587,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                             </td>
                             <td>
                               <input
-                                aria-label="Modifier le professeur détecté"
+                                aria-label="עריכת המורה שזוהה"
                                 disabled={review.status === "ignored"}
                                 value={review.teacher}
                                 onChange={(event) => updateReview({ teacher: event.target.value })}
@@ -577,10 +597,10 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                             <td>
                               <div className="row-actions">
                                 <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "accepted" })}>
-                                  Accepter
+                                  אשר
                                 </button>
                                 <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "ignored" })}>
-                                  Ignorer
+                                  התעלם
                                 </button>
                               </div>
                             </td>
@@ -592,7 +612,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                 </div>
               </section>
             ) : null}
-            {!rows.length && !availabilityRows.length && !constraintRows.length && !scheduleGridRows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
+            {!rows.length && !availabilityRows.length && !constraintRows.length && !scheduleGridRows.length ? <EmptyState title="אין שורות תצוגה מקדימה להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
             <details className="notice">
               <summary>Raw response</summary>
               <pre>{JSON.stringify(normalized.raw, null, 2)}</pre>
@@ -600,6 +620,6 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
           </section>
         </>
       ) : null}
-    </>
+    </div>
   );
 }

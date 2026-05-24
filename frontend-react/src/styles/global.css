@@ -813,6 +813,20 @@ th {
   gap: 8px;
 }
 
+.import-excel-page .table-wrap {
+  direction: rtl;
+}
+
+.import-excel-page .review-table input {
+  direction: rtl;
+  text-align: right;
+}
+
+.import-excel-page .raw-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1100px) {
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
