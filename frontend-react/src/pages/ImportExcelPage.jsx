@@ -89,6 +89,24 @@ function previewSummary(normalized) {
   ];
 }
 
+function directorMetrics(normalized, gridValidation) {
+  const summary = asObject(normalized?.summary);
+  const preview = asObject(normalized?.normalized_preview);
+  const validationSummary = asObject(gridValidation?.summary);
+  const rejectedCandidates = gridValidation?.error
+    ? 0
+    : Number(validationSummary.rejected_candidates ?? asArray(gridValidation?.rejected_candidates).length ?? 0);
+  const warningRows = asArray(normalized?.warnings).length + asArray(normalized?.errors).length;
+  const reviewRows = gridValidation ? rejectedCandidates : warningRows;
+  return [
+    ["כיתות שנמצאו", summary.classes_count ?? summary.classes ?? summary.detected_classes ?? asArray(preview.classes).length ?? 0],
+    ["מורים שנמצאו", summary.teachers_count ?? summary.teachers ?? summary.detected_teachers ?? asArray(preview.teachers).length ?? 0],
+    ["מקצועות שנמצאו", summary.subjects_count ?? summary.subjects ?? summary.detected_subjects ?? asArray(preview.subjects).length ?? 0],
+    ["שיעורים שזוהו", summary.schedule_grid_preview_count ?? summary.lesson_candidates_count ?? summary.requirements_count ?? 0],
+    ["שורות שדורשות תיקון", reviewRows],
+  ];
+}
+
 function diagnosticText(diagnostic) {
   if (typeof diagnostic === "string") return diagnostic;
   const safe = asObject(diagnostic);
@@ -276,6 +294,77 @@ function rejectedCandidateText(item) {
   return `${index}${context ? ` · ${context}` : ""}: ${errors || "שגיאת אימות."}`;
 }
 
+function gridValidationCounts(result) {
+  if (!result || result.error) return { validCount: null, rejectedCount: null };
+  const summary = asObject(result.summary);
+  return {
+    validCount: Number(summary.valid_candidates ?? asArray(result.valid_candidates).length ?? 0),
+    rejectedCount: Number(summary.rejected_candidates ?? asArray(result.rejected_candidates).length ?? 0),
+  };
+}
+
+function DirectorResultCard({
+  normalized,
+  scheduleGridRows,
+  gridValidation,
+  gridValidationLoading,
+  onValidate,
+}) {
+  const statusNeedsReview = normalized.status === "blocked" || normalized.status === "needs_review" || isScheduleGridBlocked(normalized);
+  const { validCount, rejectedCount } = gridValidationCounts(gridValidation);
+  const hasRejectedCandidates = Number(rejectedCount ?? 0) > 0;
+  const hasScheduleGrid = scheduleGridRows.length > 0;
+  const title = statusNeedsReview
+    ? "הקובץ נותח — נדרש אישור לפני ייבוא"
+    : "הקובץ נותח בהצלחה";
+  let gridMessage = "";
+  if (gridValidation?.error) {
+    gridMessage = gridValidation.error;
+  } else if (gridValidation && validCount != null) {
+    gridMessage = hasRejectedCandidates
+      ? `נבדקו ${validCount + rejectedCount} שיעורים: ${validCount} תקינים, ${rejectedCount} דורשים תיקון.`
+      : "כל השיעורים שנבדקו תקינים.";
+  } else if (hasScheduleGrid) {
+    gridMessage = "מצאנו מערכת שעות קיימת בתוך קובץ האקסל. ניתן לבדוק את השיעורים שזוהו לפני ייבוא.";
+  }
+  const summaryMessage = gridValidation
+    ? hasRejectedCandidates
+      ? "יש שורות שדורשות תיקון לפני ייבוא אמיתי."
+      : gridValidation.error
+        ? "בדיקת השיעורים לא הושלמה. הפרטים הטכניים זמינים למפתחים."
+        : "כל השיעורים שנבדקו תקינים."
+    : hasScheduleGrid
+      ? "הייבוא האמיתי עדיין כבוי עד בדיקה ואישור."
+      : "אפשר לעבור על הסיכום לפני כל ייבוא אמיתי.";
+
+  return (
+    <section className="director-result-card">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">סיכום למנהל/ת</span>
+          <h3>{title}</h3>
+          {normalized.filename ? <p>{normalized.filename}</p> : null}
+        </div>
+        {hasScheduleGrid ? (
+          <button className="primary-button" disabled={gridValidationLoading} type="button" onClick={onValidate}>
+            {gridValidationLoading ? "מאמת..." : "אמת שיעורים שזוהו"}
+          </button>
+        ) : null}
+      </div>
+      <div className="director-metrics">
+        {directorMetrics(normalized, gridValidation).map(([label, value]) => (
+          <article className="director-metric" key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </article>
+        ))}
+      </div>
+      {gridMessage ? <div className={gridValidation?.error || hasRejectedCandidates ? "notice warning" : "notice"}>{gridMessage}</div> : null}
+      <div className={hasRejectedCandidates ? "notice warning" : "notice"}>{summaryMessage}</div>
+    </section>
+  );
+}
+
 function GridValidationResult({ result }) {
   if (!result) {
     return (
@@ -325,6 +414,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
   const [candidateReviews, setCandidateReviews] = useState({});
   const [gridValidation, setGridValidation] = useState(null);
   const [gridValidationLoading, setGridValidationLoading] = useState(false);
+  const [showCandidateDetails, setShowCandidateDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const normalized = preview ? normalizeImportResult(preview) : null;
@@ -348,6 +438,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       setCommitResult(null);
       setCandidateReviews({});
       setGridValidation(null);
+      setShowCandidateDetails(false);
       setImportPreview(normalizeImportResult(result));
     } catch (err) {
       setError(err.message || t.error);
@@ -396,6 +487,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       setPreview(demoPreview);
       setCandidateReviews({});
       setGridValidation(null);
+      setShowCandidateDetails(false);
       setImportPreview(demoPreview);
     } catch (err) {
       setError(err.message || t.error);
@@ -444,11 +536,13 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       </section>
       {preview ? (
         <>
-          <section className="stat-grid compact">
-            {previewSummary(normalized).map(([label, value]) => (
-              <article className="stat-card" key={label}><span>{label}</span><strong>{value}</strong></article>
-            ))}
-          </section>
+          <DirectorResultCard
+            normalized={normalized}
+            scheduleGridRows={scheduleGridRows}
+            gridValidation={gridValidation}
+            gridValidationLoading={gridValidationLoading}
+            onValidate={validateReviewedCandidates}
+          />
           <section className="panel">
             <div className="section-head">
               <h3>תצוגה מקדימה</h3>
@@ -467,154 +561,169 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                 <span>{isScheduleGridBlocked(normalized) ? "מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי." : "הקובץ התקבל, אך לא זוהתה בו טבלה שניתן לייבא."}</span>
               </div>
             ) : null}
-            <div className="schedule-item">
-              <time>{normalized.status}</time>
-              <strong>{normalized.filename || t.unavailable}</strong>
-              <span>{normalized.import_id || t.unavailable}</span>
-              <span>{normalized.global_confidence ?? t.unavailable}</span>
-            </div>
-            {normalized.warnings.map((item, index) => <div className="notice" key={`warning-${index}`}>{String(item)}</div>)}
-            {normalized.errors.map((item, index) => <div className="notice danger" key={`error-${index}`}>{String(item)}</div>)}
-            {normalized.diagnostics.map((item, index) => <div className="notice" key={`diagnostic-${index}`}>{diagnosticText(item)}</div>)}
+            {normalized.errors.length ? <div className="notice danger">יש שורות שדורשות תיקון לפני ייבוא אמיתי.</div> : null}
+            {!normalized.errors.length && gridValidation && !gridValidation.error && !gridValidationCounts(gridValidation).rejectedCount ? <div className="notice">כל השיעורים שנבדקו תקינים.</div> : null}
             {commitResult?.success ? <div className="notice">{commitResult.message}</div> : null}
-            {rows.length ? (
-              <section className="stack-form">
-                <h3>צרכים שבועיים שזוהו</h3>
-                {rows.slice(0, 12).map((lesson, index) => {
-                  const safeLesson = asObject(lesson);
-                  return (
-                    <div className="schedule-item" key={`${safeLesson.row || "row"}-${safeLesson.column || "col"}-${index}`}>
-                      <time>{safeLesson.day || ""} {safeLesson.slot_label || safeLesson.slot || ""}</time>
-                      <strong>{safeLesson.class_name || safeLesson.class || t.unavailable}</strong>
-                      <span>{safeLesson.subject || safeLesson.subject_name || t.unavailable}</span>
-                      <span>{safeLesson.teacher || safeLesson.teacher_name || t.unavailable}</span>
-                    </div>
-                  );
-                })}
-              </section>
-            ) : null}
-            {availabilityRows.length ? (
-              <section className="stack-form">
-                <h3>זמינות מורים שזוהתה</h3>
-                {availabilityRows.slice(0, 12).map((availability, index) => {
-                  const safeAvailability = asObject(availability);
-                  return (
-                    <div className="schedule-item" key={`availability-${safeAvailability.teacher_name || safeAvailability.teacher || "teacher"}-${index}`}>
-                      <time>{safeAvailability.day || ""} {safeAvailability.time || safeAvailability.slot || safeAvailability.slot_label || ""}</time>
-                      <strong>{safeAvailability.teacher_name || safeAvailability.teacher || t.unavailable}</strong>
-                      <span>{safeAvailability.availability || safeAvailability.status || t.unavailable}</span>
-                      <span>{safeAvailability.confidence != null ? safeAvailability.confidence : ""}</span>
-                    </div>
-                  );
-                })}
-              </section>
-            ) : null}
-            {constraintRows.length ? (
-              <section className="stack-form">
-                <h3>אילוצים שזוהו</h3>
-                {constraintRows.slice(0, 12).map((constraint, index) => {
-                  const safeConstraint = asObject(constraint);
-                  return (
-                    <div className="schedule-item" key={`constraint-${index}`}>
-                      <time>{safeConstraint.type || safeConstraint.kind || ""}</time>
-                      <strong>{safeConstraint.text || safeConstraint.description || t.unavailable}</strong>
-                      <span>{safeConstraint.target || safeConstraint.teacher_name || safeConstraint.class_name || ""}</span>
-                      <span>{safeConstraint.confidence != null ? safeConstraint.confidence : ""}</span>
-                    </div>
-                  );
-                })}
-              </section>
+            {rows.length || availabilityRows.length || constraintRows.length ? (
+              <details className="disclosure-panel">
+                <summary>הצג נתונים שזוהו בקובץ</summary>
+                {rows.length ? (
+                  <section className="stack-form">
+                    <h3>צרכים שבועיים שזוהו</h3>
+                    {rows.slice(0, 12).map((lesson, index) => {
+                      const safeLesson = asObject(lesson);
+                      return (
+                        <div className="schedule-item" key={`${safeLesson.row || "row"}-${safeLesson.column || "col"}-${index}`}>
+                          <time>{safeLesson.day || ""} {safeLesson.slot_label || safeLesson.slot || ""}</time>
+                          <strong>{safeLesson.class_name || safeLesson.class || t.unavailable}</strong>
+                          <span>{safeLesson.subject || safeLesson.subject_name || t.unavailable}</span>
+                          <span>{safeLesson.teacher || safeLesson.teacher_name || t.unavailable}</span>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ) : null}
+                {availabilityRows.length ? (
+                  <section className="stack-form">
+                    <h3>זמינות מורים שזוהתה</h3>
+                    {availabilityRows.slice(0, 12).map((availability, index) => {
+                      const safeAvailability = asObject(availability);
+                      return (
+                        <div className="schedule-item" key={`availability-${safeAvailability.teacher_name || safeAvailability.teacher || "teacher"}-${index}`}>
+                          <time>{safeAvailability.day || ""} {safeAvailability.time || safeAvailability.slot || safeAvailability.slot_label || ""}</time>
+                          <strong>{safeAvailability.teacher_name || safeAvailability.teacher || t.unavailable}</strong>
+                          <span>{safeAvailability.availability || safeAvailability.status || t.unavailable}</span>
+                          <span>{safeAvailability.confidence != null ? safeAvailability.confidence : ""}</span>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ) : null}
+                {constraintRows.length ? (
+                  <section className="stack-form">
+                    <h3>אילוצים שזוהו</h3>
+                    {constraintRows.slice(0, 12).map((constraint, index) => {
+                      const safeConstraint = asObject(constraint);
+                      return (
+                        <div className="schedule-item" key={`constraint-${index}`}>
+                          <time>{safeConstraint.type || safeConstraint.kind || ""}</time>
+                          <strong>{safeConstraint.text || safeConstraint.description || t.unavailable}</strong>
+                          <span>{safeConstraint.target || safeConstraint.teacher_name || safeConstraint.class_name || ""}</span>
+                          <span>{safeConstraint.confidence != null ? safeConstraint.confidence : ""}</span>
+                        </div>
+                      );
+                    })}
+                  </section>
+                ) : null}
+              </details>
             ) : null}
             {scheduleGridRows.length ? (
-              <section className="stack-form schedule-grid-review">
+              <section className="stack-form schedule-grid-review director-disclosure">
                 <div className="section-head">
                   <div>
-                    <h3>מערכת שעות בתצוגה מקדימה</h3>
-                    <p>מערכת שעות זוהתה בתצוגה מקדימה. נדרשת בדיקה ואישור ידני לפני ייבוא אמיתי.</p>
-                    <p>השיעורים הבאים זוהו מתוך הגריד. ניתן לאשר, להתעלם או לתקן לפני ייבוא אמיתי.</p>
+                    <h3>שיעורים שזוהו מתוך מערכת השעות</h3>
                     <p>בדיקה בלבד — אף שיעור עדיין לא יובא למערכת.</p>
                   </div>
                   <button className="primary-button" disabled={gridValidationLoading} type="button" onClick={validateReviewedCandidates}>
                     {gridValidationLoading ? "מאמת..." : "אמת שיעורים שזוהו"}
                   </button>
                 </div>
-                <GridValidationResult result={gridValidation} />
-                <div className="table-wrap">
-                  <table className="review-table">
-                    <thead>
-                      <tr>
-                        <th>סטטוס</th>
-                        <th>כיתה / קבוצה</th>
-                        <th>יום</th>
-                        <th>שעה</th>
-                        <th>הטקסט המקורי</th>
-                        <th>מקצוע שזוהה</th>
-                        <th>מורה שזוהה</th>
-                        <th>רמת אמון</th>
-                        <th>פעולות</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scheduleGridRows.map((candidate, index) => {
-                        const key = candidateKey(candidate, index);
-                        const review = candidateReviews[key] || defaultCandidateReview(candidate);
-                        const confidence = candidateConfidence(candidate);
-                        const lowConfidence = isLowConfidenceCandidate(candidate);
-                        const updateReview = (patch) => {
-                          setGridValidation(null);
-                          setCandidateReviews((current) => ({
-                            ...current,
-                            [key]: { ...defaultCandidateReview(candidate), ...current[key], ...patch },
-                          }));
-                        };
-                        return (
-                          <tr className={`review-row ${review.status}`} key={key}>
-                            <td>
-                              <span className={`review-status ${review.status}`}>{candidateStatusLabel(review.status)}</span>
-                              {lowConfidence ? <span className="review-warning">דורש בדיקה</span> : null}
-                            </td>
-                            <td>{candidateValue(candidate, ["class_name", "class", "group_name", "group"], t.unavailable)}</td>
-                            <td>{candidateValue(candidate, ["day"], t.unavailable)}</td>
-                            <td>{candidateValue(candidate, ["slot_label", "time", "slot"], t.unavailable)}</td>
-                            <td className="raw-cell">{candidateValue(candidate, ["raw_cell", "original_cell_text", "cell_text", "text"], t.unavailable)}</td>
-                            <td>
-                              <input
-                                aria-label="עריכת המקצוע שזוהה"
-                                disabled={review.status === "ignored"}
-                                value={review.subject}
-                                onChange={(event) => updateReview({ subject: event.target.value })}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                aria-label="עריכת המורה שזוהה"
-                                disabled={review.status === "ignored"}
-                                value={review.teacher}
-                                onChange={(event) => updateReview({ teacher: event.target.value })}
-                              />
-                            </td>
-                            <td>{formatConfidence(confidence) || t.unavailable}</td>
-                            <td>
-                              <div className="row-actions">
-                                <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "accepted" })}>
-                                  אשר
-                                </button>
-                                <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "ignored" })}>
-                                  התעלם
-                                </button>
-                              </div>
-                            </td>
+                <button className="secondary-button director-toggle" type="button" onClick={() => setShowCandidateDetails((current) => !current)}>
+                  {showCandidateDetails ? "הסתר שורות שדורשות בדיקה" : "הצג שורות שדורשות בדיקה"}
+                </button>
+                {showCandidateDetails ? (
+                  <div className="stack-form">
+                    <GridValidationResult result={gridValidation} />
+                    <div className="table-wrap">
+                      <table className="review-table">
+                        <thead>
+                          <tr>
+                            <th>סטטוס</th>
+                            <th>כיתה / קבוצה</th>
+                            <th>יום</th>
+                            <th>שעה</th>
+                            <th>הטקסט המקורי</th>
+                            <th>מקצוע שזוהה</th>
+                            <th>מורה שזוהה</th>
+                            <th>רמת אמון</th>
+                            <th>פעולות</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {scheduleGridRows.map((candidate, index) => {
+                            const key = candidateKey(candidate, index);
+                            const review = candidateReviews[key] || defaultCandidateReview(candidate);
+                            const confidence = candidateConfidence(candidate);
+                            const lowConfidence = isLowConfidenceCandidate(candidate);
+                            const updateReview = (patch) => {
+                              setGridValidation(null);
+                              setCandidateReviews((current) => ({
+                                ...current,
+                                [key]: { ...defaultCandidateReview(candidate), ...current[key], ...patch },
+                              }));
+                            };
+                            return (
+                              <tr className={`review-row ${review.status}`} key={key}>
+                                <td>
+                                  <span className={`review-status ${review.status}`}>{candidateStatusLabel(review.status)}</span>
+                                  {lowConfidence ? <span className="review-warning">דורש בדיקה</span> : null}
+                                </td>
+                                <td>{candidateValue(candidate, ["class_name", "class", "group_name", "group"], t.unavailable)}</td>
+                                <td>{candidateValue(candidate, ["day"], t.unavailable)}</td>
+                                <td>{candidateValue(candidate, ["slot_label", "time", "slot"], t.unavailable)}</td>
+                                <td className="raw-cell">{candidateValue(candidate, ["raw_cell", "original_cell_text", "cell_text", "text"], t.unavailable)}</td>
+                                <td>
+                                  <input
+                                    aria-label="עריכת המקצוע שזוהה"
+                                    disabled={review.status === "ignored"}
+                                    value={review.subject}
+                                    onChange={(event) => updateReview({ subject: event.target.value })}
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    aria-label="עריכת המורה שזוהה"
+                                    disabled={review.status === "ignored"}
+                                    value={review.teacher}
+                                    onChange={(event) => updateReview({ teacher: event.target.value })}
+                                  />
+                                </td>
+                                <td>{formatConfidence(confidence) || t.unavailable}</td>
+                                <td>
+                                  <div className="row-actions">
+                                    <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "accepted" })}>
+                                      אשר
+                                    </button>
+                                    <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "ignored" })}>
+                                      התעלם
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </section>
             ) : null}
             {!rows.length && !availabilityRows.length && !constraintRows.length && !scheduleGridRows.length ? <EmptyState title="אין שורות תצוגה מקדימה להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
-            <details className="notice">
-              <summary>Raw response</summary>
+            <details className="disclosure-panel">
+              <summary>אבחון מתקדם</summary>
+              <div className="schedule-item">
+                <time>{normalized.status}</time>
+                <strong>{normalized.filename || t.unavailable}</strong>
+                <span>{normalized.import_id || t.unavailable}</span>
+                <span>{normalized.global_confidence ?? t.unavailable}</span>
+              </div>
+              {normalized.warnings.map((item, index) => <div className="notice" key={`warning-${index}`}>{String(item)}</div>)}
+              {normalized.errors.map((item, index) => <div className="notice danger" key={`error-${index}`}>{String(item)}</div>)}
+              {normalized.diagnostics.map((item, index) => <div className="notice" key={`diagnostic-${index}`}>{diagnosticText(item)}</div>)}
+            </details>
+            <details className="disclosure-panel">
+              <summary>פרטים טכניים למפתחים</summary>
               <pre>{JSON.stringify(normalized.raw, null, 2)}</pre>
             </details>
           </section>

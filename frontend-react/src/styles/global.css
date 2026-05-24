@@ -384,6 +384,100 @@ button {
   margin-bottom: 0;
 }
 
+.director-result-card {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  margin-bottom: 20px;
+  border: 1px solid #b9d9ca;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(34, 50, 70, 0.06);
+}
+
+.director-result-card h3 {
+  margin: 3px 0 0;
+  font-size: 25px;
+}
+
+.director-result-card p {
+  margin: 6px 0 0;
+  color: #526173;
+}
+
+.director-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.director-metric {
+  min-height: 96px;
+  padding: 14px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.director-metric span {
+  display: block;
+  color: #667789;
+  font-size: 14px;
+}
+
+.director-metric strong {
+  display: block;
+  margin-top: 8px;
+  color: #17212b;
+  font-size: 28px;
+}
+
+.disclosure-panel {
+  padding: 0;
+  margin-bottom: 16px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.disclosure-panel summary {
+  cursor: pointer;
+  padding: 13px 14px;
+  color: #243242;
+  font-weight: 800;
+}
+
+.disclosure-panel[open] {
+  padding: 0 14px 14px;
+}
+
+.disclosure-panel[open] summary {
+  margin: 0 -14px 14px;
+  border-bottom: 1px solid #edf1f5;
+  background: #fbfcfe;
+}
+
+.disclosure-panel pre {
+  max-height: 420px;
+  overflow: auto;
+  direction: ltr;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.director-disclosure {
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.director-toggle {
+  justify-self: start;
+}
+
 .toolbar {
   display: flex;
   gap: 12px;
@@ -871,6 +965,7 @@ th {
 
   .stat-grid,
   .stat-grid.compact,
+  .director-metrics,
   .card-grid,
   .room-grid,
   .group-grid,
