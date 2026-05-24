@@ -33,11 +33,16 @@ class SemanticDetectionBrain:
             classification = class_by_sheet.get(sheet.name, {})
             if header and classification.get("sheet_type") == "requirements_table":
                 _extract_requirements(sheet, header, entities, seen)
-            elif header and classification.get("sheet_type") == "teacher_availability":
-                _extract_availability(sheet, header, entities, seen)
+            elif classification.get("sheet_type") in {"teacher_availability", "availability_table"}:
+                diagnostics.append(diagnostic("teacher_availability_detected", "info", "Feuille de disponibilités détectée; aucun cours ne sera extrait de cette feuille.", sheet_name=sheet.name, confidence=0.86))
+                diagnostics.append(diagnostic("availability_sheet_detected", "info", "Grille de disponibilités détectée; schedule_grid rejeté.", sheet_name=sheet.name, confidence=0.86))
+                if header:
+                    _extract_availability(sheet, header, entities, seen)
             elif classification.get("sheet_type") == "schedule_grid":
                 diagnostics.extend(_extract_schedule_grid_preview(sheet, entities, seen))
-            elif classification.get("sheet_type") in {"constraints", "mixed_sheet", "unknown_review"}:
+            elif classification.get("sheet_type") in {"constraints", "constraints_table", "constraints_text", "mixed_sheet", "unknown_review"}:
+                if classification.get("sheet_type") in {"constraints", "constraints_table", "constraints_text"}:
+                    diagnostics.append(diagnostic("constraints_sheet_detected", "info", "Feuille de contraintes détectée; aucun cours ne sera extrait de cette feuille.", sheet_name=sheet.name, confidence=0.82))
                 _extract_constraints(sheet, entities, seen)
         context.semantic_entities = entities
         count = sum(len(value) for value in entities.values())
