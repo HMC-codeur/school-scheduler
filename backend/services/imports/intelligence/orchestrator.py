@@ -137,6 +137,8 @@ def _build_response(context: ImportContext) -> dict[str, Any]:
             "detected_teachers": len(normalized.get("teachers", [])),
             "detected_subjects": len(normalized.get("subjects", [])),
             "requirements_count": len(normalized.get("requirements", [])),
+            "schedule_grid_preview_count": len(normalized.get("schedule_grid_preview", [])),
+            "lesson_candidates_count": len(normalized.get("lesson_candidates", [])),
             "diagnostics_count": len(diagnostics),
             "review_items_count": len(context.human_review_items),
         },
@@ -165,6 +167,8 @@ def _draft_from_response(response: dict[str, Any]) -> dict[str, Any]:
             "teachers": [item.get("name") for item in normalized.get("teachers", []) if item.get("name")],
             "subjects": [item.get("name") for item in normalized.get("subjects", []) if item.get("name")],
             "requirements": normalized.get("requirements", []),
+            "schedule_grid_preview": normalized.get("schedule_grid_preview", []),
+            "lesson_candidates": normalized.get("lesson_candidates", []),
         },
     }
 
@@ -182,7 +186,7 @@ def _dedupe_diagnostics(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _empty_normalized() -> dict[str, list[Any]]:
-    return {"classes": [], "teachers": [], "subjects": [], "requirements": [], "constraints": [], "availability": [], "source_trace": []}
+    return {"classes": [], "teachers": [], "subjects": [], "requirements": [], "constraints": [], "availability": [], "schedule_grid_preview": [], "lesson_candidates": [], "source_trace": []}
 
 
 def _save_import_draft(draft: dict[str, Any]) -> None:

@@ -17,15 +17,17 @@ class NormalizationBrain:
             "requirements": [_requirement(item) for item in entities.get("requirements", [])],
             "constraints": list(entities.get("constraints", [])),
             "availability": list(entities.get("availability", [])),
+            "schedule_grid_preview": list(entities.get("schedule_grid_preview", [])),
+            "lesson_candidates": list(entities.get("lesson_candidates", [])),
             "source_trace": [],
         }
-        for bucket in ("classes", "teachers", "subjects", "requirements", "constraints", "availability"):
+        for bucket in ("classes", "teachers", "subjects", "requirements", "constraints", "availability", "schedule_grid_preview", "lesson_candidates"):
             for item in normalized[bucket]:
                 trace = item.get("source_trace")
                 if trace:
                     normalized["source_trace"].append({"entity_type": bucket, **trace})
         context.normalized_data = normalized
-        count = sum(len(normalized[key]) for key in ("classes", "teachers", "subjects", "requirements", "constraints", "availability"))
+        count = sum(len(normalized[key]) for key in ("classes", "teachers", "subjects", "requirements", "constraints", "availability", "schedule_grid_preview"))
         return context.add_result(BrainResult(self.name, "ok", 0.86 if count else 0.35, data={"normalized_data": normalized}))
 
 

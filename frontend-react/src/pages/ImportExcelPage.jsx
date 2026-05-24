@@ -21,6 +21,9 @@ function normalizeImportResult(result) {
     : asArray(normalizedPreview.lessons);
   const previewAvailability = asArray(normalizedPreview.availability);
   const previewConstraints = asArray(normalizedPreview.constraints);
+  const previewGridCandidates = asArray(normalizedPreview.schedule_grid_preview).length
+    ? asArray(normalizedPreview.schedule_grid_preview)
+    : asArray(normalizedPreview.lesson_candidates);
   const normalizedSummary = Object.keys(summary).length
     ? summary
     : {
@@ -31,15 +34,17 @@ function normalizeImportResult(result) {
         requirements_count: counts.lessons || 0,
         availability_count: counts.availability || 0,
         constraints_count: counts.constraints || 0,
+        schedule_grid_preview_count: counts.schedule_grid_preview || counts.lesson_candidates || 0,
       };
   const requirementsCount = Number(normalizedSummary.requirements_count ?? normalizedSummary.importable_rows ?? previewRequirements.length ?? 0);
   const availabilityCount = Number(normalizedSummary.availability_count ?? previewAvailability.length ?? 0);
   const constraintsCount = Number(normalizedSummary.constraints_count ?? previewConstraints.length ?? 0);
+  const scheduleGridPreviewCount = Number(normalizedSummary.schedule_grid_preview_count ?? normalizedSummary.lesson_candidates_count ?? previewGridCandidates.length ?? 0);
   const classesCount = Number(normalizedSummary.classes_count ?? normalizedSummary.detected_classes ?? asArray(normalizedPreview.classes).length ?? 0);
   const teachersCount = Number(normalizedSummary.teachers_count ?? normalizedSummary.detected_teachers ?? asArray(normalizedPreview.teachers).length ?? 0);
   const subjectsCount = Number(normalizedSummary.subjects_count ?? normalizedSummary.detected_subjects ?? asArray(normalizedPreview.subjects).length ?? 0);
   const confidence = safe.global_confidence ?? safe.confidence ?? safe.confidence_score ?? null;
-  const hasImportableData = requirementsCount > 0 || availabilityCount > 0 || constraintsCount > 0 || classesCount > 0 || teachersCount > 0 || subjectsCount > 0;
+  const hasImportableData = requirementsCount > 0 || availabilityCount > 0 || constraintsCount > 0 || scheduleGridPreviewCount > 0 || classesCount > 0 || teachersCount > 0 || subjectsCount > 0;
   const backendAllowsImport = Boolean(safe.can_apply ?? safe.can_commit);
   const canImport = backendAllowsImport && hasImportableData && Number(confidence ?? 0) > 0;
   return {
@@ -56,6 +61,7 @@ function normalizeImportResult(result) {
       requirements_count: requirementsCount,
       availability_count: availabilityCount,
       constraints_count: constraintsCount,
+      schedule_grid_preview_count: scheduleGridPreviewCount,
     },
     sheet_profiles: asArray(safe.sheet_profiles),
     sheet_classifications: asArray(safe.sheet_classifications),
@@ -78,6 +84,7 @@ function previewSummary(normalized) {
     ["Besoins", summary.requirements_count ?? 0],
     ["Disponibilités", summary.availability_count ?? 0],
     ["Contraintes", summary.constraints_count ?? 0],
+    ["Grille", summary.schedule_grid_preview_count ?? summary.lesson_candidates_count ?? 0],
     ["שורות לא תקינות", asArray(normalized?.warnings).length + asArray(normalized?.errors).length + asArray(normalized?.diagnostics).length],
   ];
 }
@@ -110,11 +117,18 @@ function previewConstraintRows(normalized) {
   return asArray(asObject(normalized?.normalized_preview).constraints);
 }
 
+function previewScheduleGridRows(normalized) {
+  const preview = asObject(normalized?.normalized_preview);
+  return asArray(preview.schedule_grid_preview).length
+    ? asArray(preview.schedule_grid_preview)
+    : asArray(preview.lesson_candidates);
+}
+
 function isScheduleGridBlocked(normalized) {
   const classifications = asArray(normalized?.sheet_classifications);
   const diagnostics = asArray(normalized?.diagnostics);
   return classifications.some((item) => asObject(item).sheet_type === "schedule_grid")
-    && diagnostics.some((item) => asObject(item).code === "schedule_grid_requires_review" || asObject(item).code === "no_importable_data");
+    && diagnostics.some((item) => asObject(item).code === "schedule_grid_requires_review" || asObject(item).code === "no_importable_data" || asObject(item).code === "schedule_grid_preview_only");
 }
 
 function isEmptyImportAnalysis(normalized) {
@@ -124,16 +138,17 @@ function isEmptyImportAnalysis(normalized) {
   const importableRows = Number(summary.importable_rows ?? summary.requirements_count ?? 0);
   const availabilityCount = Number(summary.availability_count ?? 0);
   const constraintsCount = Number(summary.constraints_count ?? 0);
+  const scheduleGridPreviewCount = Number(summary.schedule_grid_preview_count ?? summary.lesson_candidates_count ?? 0);
   const classesCount = Number(summary.classes_count ?? summary.detected_classes ?? 0);
   const teachersCount = Number(summary.teachers_count ?? summary.detected_teachers ?? 0);
   const subjectsCount = Number(summary.subjects_count ?? summary.detected_subjects ?? 0);
-  return !normalized.has_importable_data || importableRows === 0 && availabilityCount === 0 && constraintsCount === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0;
+  return !normalized.has_importable_data || importableRows === 0 && availabilityCount === 0 && constraintsCount === 0 && scheduleGridPreviewCount === 0 && classesCount === 0 && teachersCount === 0 && subjectsCount === 0 || confidence === 0;
 }
 
 function detectedDataMessage(normalized) {
   if (!normalized) return "";
   if (isScheduleGridBlocked(normalized)) {
-    return "Grille planning détectée, extraction automatique pas encore supportée. Review nécessaire.";
+    return "Grille planning analysée en aperçu. Validation humaine obligatoire avant import.";
   }
   if (normalized.status === "needs_review" && normalized.has_importable_data) {
     return "Données détectées, validation humaine recommandée.";
@@ -151,6 +166,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
   const rows = previewRows(normalized);
   const availabilityRows = previewAvailabilityRows(normalized);
   const constraintRows = previewConstraintRows(normalized);
+  const scheduleGridRows = previewScheduleGridRows(normalized);
   const previewKeys = Object.keys(asObject(normalized?.normalized_preview));
   const hasMinimalResponse = normalized && !previewKeys.length && !rows.length;
   const emptyImportAnalysis = isEmptyImportAnalysis(normalized);
@@ -320,7 +336,23 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                 })}
               </section>
             ) : null}
-            {!rows.length && !availabilityRows.length && !constraintRows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
+            {scheduleGridRows.length ? (
+              <section className="stack-form">
+                <h3>Grille planning en aperçu</h3>
+                {scheduleGridRows.slice(0, 12).map((candidate, index) => {
+                  const safeCandidate = asObject(candidate);
+                  return (
+                    <div className="schedule-item" key={`schedule-grid-${safeCandidate.source_trace?.row || "row"}-${safeCandidate.source_trace?.column || "col"}-${index}`}>
+                      <time>{safeCandidate.day || ""} {safeCandidate.time || safeCandidate.slot || ""}</time>
+                      <strong>{safeCandidate.class_name || t.unavailable}</strong>
+                      <span>{safeCandidate.subject || safeCandidate.raw_cell || t.unavailable}</span>
+                      <span>{safeCandidate.teacher || safeCandidate.confidence || ""}</span>
+                    </div>
+                  );
+                })}
+              </section>
+            ) : null}
+            {!rows.length && !availabilityRows.length && !constraintRows.length && !scheduleGridRows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}
             <details className="notice">
               <summary>Raw response</summary>
               <pre>{JSON.stringify(normalized.raw, null, 2)}</pre>

@@ -12,7 +12,8 @@ def analyze_with_intelligence_brains(content: bytes, filename: str | None = None
     counts = _counts(result, normalized)
     blocking = any(item.get("severity") == "blocking" for item in diagnostics)
     has_data = counts["requirements_count"] > 0 or counts["availability_count"] > 0
-    schedule_grid_unextracted = _has_schedule_grid(result) and not has_data
+    has_schedule_grid_preview = counts["schedule_grid_preview_count"] > 0 or counts["lesson_candidates_count"] > 0
+    schedule_grid_unextracted = _has_schedule_grid(result) and not has_data and not has_schedule_grid_preview
 
     if schedule_grid_unextracted and not _has_diagnostic(diagnostics, "schedule_grid_requires_review"):
         diagnostics.append(
@@ -22,7 +23,7 @@ def analyze_with_intelligence_brains(content: bytes, filename: str | None = None
                 "message": "A schedule grid was detected, but it cannot be applied automatically yet.",
             }
         )
-    if not has_data and not _has_diagnostic(diagnostics, "no_importable_data"):
+    if not has_data and not has_schedule_grid_preview and not _has_diagnostic(diagnostics, "no_importable_data"):
         diagnostics.append(
             {
                 "severity": "blocking",
@@ -32,8 +33,9 @@ def analyze_with_intelligence_brains(content: bytes, filename: str | None = None
         )
         blocking = True
 
-    needs_review = bool(diagnostics) or bool(result.get("human_review")) or schedule_grid_unextracted or not has_data
-    can_apply = bool(has_data and not blocking)
+    needs_review = bool(diagnostics) or bool(result.get("human_review")) or schedule_grid_unextracted or has_schedule_grid_preview or not has_data
+    can_apply = bool(has_data and not blocking and not has_schedule_grid_preview)
+    status = "blocked" if blocking else "needs_review" if has_schedule_grid_preview or needs_review else result.get("status", "needs_review")
     summary = {
         **(result.get("summary") or {}),
         "classes_count": counts["classes_count"],
@@ -41,13 +43,15 @@ def analyze_with_intelligence_brains(content: bytes, filename: str | None = None
         "subjects_count": counts["subjects_count"],
         "requirements_count": counts["requirements_count"],
         "availability_count": counts["availability_count"],
+        "schedule_grid_preview_count": counts["schedule_grid_preview_count"],
+        "lesson_candidates_count": counts["lesson_candidates_count"],
     }
 
     return {
         **result,
         "import_id": result.get("import_id"),
         "filename": filename,
-        "status": "blocked" if blocking else result.get("status", "needs_review"),
+        "status": status,
         "diagnostics": diagnostics,
         "normalized_preview": normalized,
         "summary": summary,
@@ -69,6 +73,8 @@ def _normalized_preview(result: dict[str, Any]) -> dict[str, list[Any]]:
         "requirements": list(preview.get("requirements") or []),
         "constraints": list(preview.get("constraints") or []),
         "availability": list(preview.get("availability") or []),
+        "schedule_grid_preview": list(preview.get("schedule_grid_preview") or []),
+        "lesson_candidates": list(preview.get("lesson_candidates") or []),
         "source_trace": list(preview.get("source_trace") or []),
     }
 
@@ -85,6 +91,8 @@ def _counts(result: dict[str, Any], normalized: dict[str, list[Any]]) -> dict[st
         "subjects_count": int(summary.get("subjects_count") or summary.get("detected_subjects") or len(normalized["subjects"])),
         "requirements_count": int(summary.get("requirements_count") or len(normalized["requirements"])),
         "availability_count": int(summary.get("availability_count") or len(normalized["availability"])),
+        "schedule_grid_preview_count": int(summary.get("schedule_grid_preview_count") or len(normalized["schedule_grid_preview"])),
+        "lesson_candidates_count": int(summary.get("lesson_candidates_count") or len(normalized["lesson_candidates"])),
     }
 
 

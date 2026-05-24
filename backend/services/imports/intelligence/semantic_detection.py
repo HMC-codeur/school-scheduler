@@ -3,8 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.services.imports.intelligence.diagnostics import diagnostic
 from backend.services.imports.intelligence.models import BrainResult, ImportContext, source_trace
 from backend.services.imports.intelligence.normalizers import day_key, is_time_like, normalize_text
+from backend.services.imports.normalizers import looks_like_class_token, parse_lesson_cell
 
 
 class SemanticDetectionBrain:
@@ -20,7 +22,10 @@ class SemanticDetectionBrain:
             "requirements": [],
             "availability": [],
             "constraints": [],
+            "schedule_grid_preview": [],
+            "lesson_candidates": [],
         }
+        diagnostics = []
         headers_by_sheet = {item["sheet_name"]: item for item in context.headers}
         class_by_sheet = {item["sheet_name"]: item for item in context.sheet_classifications}
         seen = {key: set() for key in entities}
@@ -32,12 +37,13 @@ class SemanticDetectionBrain:
             elif header and classification.get("sheet_type") == "teacher_availability":
                 _extract_availability(sheet, header, entities, seen)
             elif classification.get("sheet_type") == "schedule_grid":
-                _extract_grid_hints(sheet, entities, seen)
+                diagnostics.extend(_extract_schedule_grid_preview(sheet, entities, seen))
             elif classification.get("sheet_type") in {"constraints", "mixed_sheet", "unknown_review"}:
                 _extract_constraints(sheet, entities, seen)
         context.semantic_entities = entities
         count = sum(len(value) for value in entities.values())
-        return context.add_result(BrainResult(self.name, "ok", 0.82 if count else 0.3, data={"semantic_entities": entities}))
+        status = "needs_review" if diagnostics else "ok"
+        return context.add_result(BrainResult(self.name, status, 0.82 if count else 0.3, diagnostics, {"semantic_entities": entities}))
 
 
 def _columns(header: dict[str, Any]) -> dict[str, int]:
@@ -114,7 +120,12 @@ def _extract_availability(sheet, header: dict[str, Any], entities: dict[str, Any
         )
 
 
-def _extract_grid_hints(sheet, entities: dict[str, Any], seen: dict[str, set[str]]) -> None:
+def _extract_schedule_grid_preview(sheet, entities: dict[str, Any], seen: dict[str, set[str]]) -> list[Any]:
+    diagnostics = [
+        diagnostic("schedule_grid_detected", "info", "Grille de planning détectée.", sheet_name=sheet.name, confidence=0.8),
+        diagnostic("schedule_grid_preview_only", "warning", "Grille planning analysée en aperçu uniquement.", sheet_name=sheet.name, suggestion="Validez les cours détectés avant tout import.", confidence=0.8),
+        diagnostic("schedule_grid_requires_confirmation", "warning", "Validation humaine obligatoire avant import de cette grille.", sheet_name=sheet.name, confidence=0.85),
+    ]
     for row_index, row in sheet.rows.items():
         for column, value in row.items():
             text = normalize_text(value)
@@ -122,6 +133,117 @@ def _extract_grid_hints(sheet, entities: dict[str, Any], seen: dict[str, set[str
                 _add_entity(entities["weekdays"], seen["weekdays"], text, source_trace(sheet.name, row_index, column, text, 0.75))
             if is_time_like(text):
                 _add_entity(entities["time_slots"], seen["time_slots"], text, source_trace(sheet.name, row_index, column, text, 0.75))
+    candidates, low_confidence = _extract_column_day_grid(sheet)
+    entities["schedule_grid_preview"].extend(candidates)
+    entities["lesson_candidates"].extend(candidates)
+    diagnostics.extend(
+        diagnostic(
+            "low_confidence_grid_cell",
+            "info",
+            "Cellule de grille extraite avec confiance faible.",
+            sheet_name=sheet.name,
+            row=item["source_trace"].get("row"),
+            column=item["source_trace"].get("column"),
+            suggestion="Confirmez la matière, le professeur ou la classe.",
+            confidence=item.get("confidence", 0.45),
+        )
+        for item in low_confidence[:8]
+    )
+    return diagnostics
+
+
+def _extract_column_day_grid(sheet) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    day_headers_by_row: dict[int, list[tuple[int, str, str]]] = {}
+    for row_index, row in sheet.rows.items():
+        for column, value in row.items():
+            text = normalize_text(value)
+            key = day_key(text)
+            if key:
+                day_headers_by_row.setdefault(row_index, []).append((column, text, key))
+    candidates: list[dict[str, Any]] = []
+    low_confidence: list[dict[str, Any]] = []
+    seen_cells: set[tuple[int, int]] = set()
+    for header_row, day_headers in day_headers_by_row.items():
+        ordered_headers = sorted(day_headers, key=lambda item: item[0])
+        for index, (start_column, day_label, _) in enumerate(ordered_headers):
+            next_column = ordered_headers[index + 1][0] if index + 1 < len(ordered_headers) else sheet.max_column + 1
+            for row_index in range(header_row + 1, sheet.max_row + 1):
+                time_label = _time_for_row(sheet, row_index, start_column, next_column)
+                if not time_label:
+                    continue
+                for column in range(start_column, min(next_column, sheet.max_column + 1)):
+                    if (row_index, column) in seen_cells:
+                        continue
+                    raw_cell = normalize_text(sheet.rows.get(row_index, {}).get(column, ""))
+                    if not raw_cell or day_key(raw_cell) or is_time_like(raw_cell) or looks_like_class_token(raw_cell):
+                        continue
+                    seen_cells.add((row_index, column))
+                    parsed, warnings = parse_lesson_cell(raw_cell)
+                    class_name = parsed.get("class_name") or _class_for_column(sheet, header_row, row_index, column)
+                    subject = parsed.get("subject")
+                    teacher = parsed.get("teacher")
+                    confidence = _grid_cell_confidence(class_name, day_label, time_label, raw_cell, subject, teacher, warnings)
+                    item = {
+                        "class_name": class_name,
+                        "day": day_label,
+                        "time": time_label,
+                        "slot": f"{day_label} {time_label}".strip(),
+                        "raw_cell": raw_cell,
+                        "subject": subject,
+                        "teacher": teacher,
+                        "confidence": confidence,
+                        "source_trace": source_trace(sheet.name, row_index, column, raw_cell, confidence),
+                    }
+                    candidates.append(item)
+                    if confidence < 0.6:
+                        low_confidence.append(item)
+    return candidates, low_confidence
+
+
+def _time_for_row(sheet, row_index: int, start_column: int, next_column: int) -> str | None:
+    row = sheet.rows.get(row_index, {})
+    for column in range(1, start_column):
+        value = normalize_text(row.get(column, ""))
+        if is_time_like(value):
+            return value
+    for column in range(next_column, sheet.max_column + 1):
+        value = normalize_text(row.get(column, ""))
+        if is_time_like(value):
+            return value
+    return None
+
+
+def _class_for_column(sheet, header_row: int, row_index: int, column: int) -> str | None:
+    for lookup_row in range(row_index - 1, header_row, -1):
+        value = normalize_text(sheet.rows.get(lookup_row, {}).get(column, ""))
+        if looks_like_class_token(value):
+            return value
+    for lookup_column in range(column - 1, 0, -1):
+        value = normalize_text(sheet.rows.get(row_index, {}).get(lookup_column, ""))
+        if looks_like_class_token(value):
+            return value
+        if is_time_like(value) or day_key(value):
+            break
+    return None
+
+
+def _grid_cell_confidence(class_name: str | None, day: str | None, time: str | None, raw_cell: str, subject: str | None, teacher: str | None, warnings: list[str]) -> float:
+    score = 0.35
+    if class_name:
+        score += 0.18
+    if day:
+        score += 0.12
+    if time:
+        score += 0.12
+    if subject and subject != raw_cell:
+        score += 0.08
+    elif subject:
+        score += 0.04
+    if teacher:
+        score += 0.12
+    if warnings:
+        score -= 0.08
+    return round(max(0.35, min(score, 0.86)), 3)
 
 
 def _extract_constraints(sheet, entities: dict[str, Any], seen: dict[str, set[str]]) -> None:
