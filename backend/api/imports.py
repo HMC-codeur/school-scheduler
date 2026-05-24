@@ -14,7 +14,7 @@ from backend.data.repository import SchedulerRepository
 from backend.data.store import get_store
 from backend.models.schemas import ExcelImportCommitRequest
 from backend.services.excel_import import commit_excel_import, excel_import_max_bytes, preview_excel_schedule
-from backend.services.imports.normalizers import day_key, is_time_like, normalize_text
+from backend.services.imports.intelligence.normalizers import day_key, is_time_like, normalize_text
 
 
 router = APIRouter(prefix="/imports", tags=["imports"])
