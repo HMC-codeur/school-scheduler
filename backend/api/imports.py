@@ -14,7 +14,8 @@ from backend.data.repository import SchedulerRepository
 from backend.data.store import get_store
 from backend.models.schemas import ExcelImportCommitRequest
 from backend.services.excel_import import commit_excel_import, excel_import_max_bytes, preview_excel_schedule
-from backend.services.imports.intelligence.normalizers import day_key, is_time_like, normalize_text
+from backend.services.imports.intelligence.normalizers import day_key, is_time_like, looks_like_class_token, normalize_text, parse_lesson_cell
+from backend.services.imports.intelligence.school_terms import looks_availability_like, looks_constraint_like, looks_noise_like
 
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -112,14 +113,14 @@ def validate_grid_candidates(payload: dict[str, Any] | list[Any]) -> dict:
             continue
         if status != "accepted":
             error = _grid_candidate_issue(index, candidate, "unsupported_status", "Statut de candidat non supporté.", field="status", value=status)
-            rejected_candidates.append({"index": index, "candidate": candidate, "errors": [error]})
+            rejected_candidates.append({"index": index, "candidate": candidate, "errors": [error], "suggestion": _grid_candidate_suggestion(candidate, [error])})
             blocking_errors.append(error)
             continue
 
         accepted_count += 1
         normalized, errors = _validate_accepted_grid_candidate(candidate, index)
         if errors:
-            rejected_candidates.append({"index": index, "candidate": candidate, "errors": errors})
+            rejected_candidates.append({"index": index, "candidate": candidate, "errors": errors, "suggestion": _grid_candidate_suggestion(candidate, errors)})
             blocking_errors.extend(errors)
             continue
 
@@ -271,6 +272,83 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _grid_candidate_suggestion(candidate: dict[str, Any], errors: list[dict[str, Any]]) -> dict[str, Any]:
+    raw_cell = _first_text(candidate, "original_text", "raw_cell", "cell_text", "text", "raw")
+    error_codes = {str(error.get("code") or "") for error in errors}
+    parsed, parse_warnings = parse_lesson_cell(raw_cell)
+    proposed_class = _extract_class_token_from_text(raw_cell) or normalize_text(parsed.get("class_name"))
+    proposed_subject = _subject_from_raw_cell(raw_cell, parsed)
+
+    if "missing_class_or_group" in error_codes and proposed_class:
+        return {
+            "action": "fill_missing_class",
+            "label_he": "השלמת כיתה",
+            "explanation_he": f"נראה שחסרה כיתה בשורה הזו. הצעה: לשייך לכיתה {proposed_class}",
+            "proposed_values": {"class_name": proposed_class},
+            "confidence": 0.82,
+        }
+    if _looks_like_non_lesson(raw_cell):
+        return {
+            "action": "ignore_as_non_lesson",
+            "label_he": "התעלמות משורה שאינה שיעור",
+            "explanation_he": "השורה הזו לא נראית כמו שיעור ולכן מומלץ להתעלם ממנה.",
+            "confidence": 0.86,
+        }
+    if "missing_subject" in error_codes and proposed_subject:
+        confidence = 0.72 if not parse_warnings else 0.58
+        return {
+            "action": "edit_subject",
+            "label_he": "השלמת מקצוע",
+            "explanation_he": f"נראה שחסר מקצוע בשורה הזו. הצעה: {proposed_subject}",
+            "proposed_values": {"subject": proposed_subject},
+            "confidence": confidence,
+        }
+    if error_codes & {"missing_or_unrecognized_day", "missing_or_unrecognized_slot"}:
+        return {
+            "action": "edit_day_or_slot",
+            "label_he": "תיקון יום או שעה",
+            "explanation_he": "היום או השעה לא זוהו בוודאות. מומלץ לפתוח את השורה לעריכה ידנית.",
+            "confidence": 0.62,
+        }
+    return {
+        "action": "manual_review",
+        "label_he": "בדיקה ידנית",
+        "explanation_he": "נדרשת בדיקה ידנית.",
+        "confidence": 0.5,
+    }
+
+
+def _looks_like_non_lesson(raw_cell: str) -> bool:
+    return bool(raw_cell and (looks_availability_like(raw_cell) or looks_constraint_like(raw_cell) or looks_noise_like(raw_cell)))
+
+
+def _extract_class_token_from_text(raw_cell: str) -> str | None:
+    if not raw_cell:
+        return None
+    tokens = re.findall(r"[\w\u0590-\u05ff\"'׳]+", raw_cell)
+    candidates: list[str] = []
+    for token in tokens:
+        parts = [token]
+        parts.extend(part for part in re.split(r"[-/]", token) if part)
+        candidates.extend(parts)
+    for token in reversed(candidates):
+        cleaned = token.strip("()[]{}.,;:")
+        if looks_like_class_token(cleaned):
+            return cleaned
+    return None
+
+
+def _subject_from_raw_cell(raw_cell: str, parsed: dict[str, Any]) -> str | None:
+    subject = normalize_text(parsed.get("subject"))
+    if not subject or subject == raw_cell:
+        return None
+    if _looks_like_non_lesson(subject):
+        return None
+    if looks_like_class_token(subject):
+        return None
+    return subject
 
 
 def _grid_candidate_issue(

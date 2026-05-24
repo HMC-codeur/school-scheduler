@@ -213,6 +213,7 @@ function isLowConfidenceCandidate(candidate) {
 function defaultCandidateReview(candidate) {
   return {
     status: isLowConfidenceCandidate(candidate) ? "low_confidence" : "needs_review",
+    class_name: String(candidateValue(candidate, ["class_name", "class_group", "class", "group_name", "group"], "")),
     subject: String(candidateValue(candidate, ["subject", "subject_name", "detected_subject"], "")),
     teacher: String(candidateValue(candidate, ["teacher", "teacher_name", "detected_teacher"], "")),
   };
@@ -226,7 +227,7 @@ function candidateStatusLabel(status) {
 }
 
 function reviewedGridCandidatePayload(candidate, index, review) {
-  const classGroup = String(candidateValue(candidate, ["class_name", "class_group", "class", "group_name", "group"], ""));
+  const classGroup = String(review?.class_name ?? candidateValue(candidate, ["class_name", "class_group", "class", "group_name", "group"], ""));
   const rawCell = String(candidateValue(candidate, ["raw_cell", "original_text", "original_cell_text", "cell_text", "text"], ""));
   const slot = String(candidateValue(candidate, ["time", "slot", "slot_label", "period"], ""));
   const subject = String(review?.subject ?? candidateValue(candidate, ["subject", "subject_name", "detected_subject"], ""));
@@ -294,6 +295,33 @@ function rejectedCandidateText(item) {
   return `${index}${context ? ` · ${context}` : ""}: ${errors || "שגיאת אימות."}`;
 }
 
+function suggestionProblemText(item) {
+  const safe = asObject(item);
+  const candidate = asObject(safe.candidate);
+  const trace = asObject(candidate.source_trace);
+  const errors = asArray(safe.errors);
+  const firstError = asObject(errors[0]);
+  const parts = [];
+  if (safe.index != null) parts.push(`מועמד ${Number(safe.index) + 1}`);
+  if (trace.row != null || trace.column != null || firstError.row != null || firstError.column != null) {
+    parts.push(`תא ${trace.row ?? firstError.row ?? "?"}/${trace.column ?? firstError.column ?? "?"}`);
+  }
+  const raw = candidate.raw_cell || candidate.original_text || candidate.cell_text || candidate.text;
+  if (raw) parts.push(String(raw));
+  return parts.join(" · ") || "שורה שדורשת בדיקה";
+}
+
+function suggestedActionLabel(suggestion) {
+  const safe = asObject(suggestion);
+  return safe.label_he || {
+    fill_missing_class: "השלמת כיתה",
+    ignore_as_non_lesson: "התעלמות משורה שאינה שיעור",
+    edit_subject: "השלמת מקצוע",
+    edit_day_or_slot: "תיקון יום או שעה",
+    manual_review: "בדיקה ידנית",
+  }[safe.action] || "בדיקה ידנית";
+}
+
 function gridValidationCounts(result) {
   if (!result || result.error) return { validCount: null, rejectedCount: null };
   const summary = asObject(result.summary);
@@ -308,7 +336,11 @@ function DirectorResultCard({
   scheduleGridRows,
   gridValidation,
   gridValidationLoading,
+  candidateReviews,
   onValidate,
+  onAcceptSuggestion,
+  onIgnoreSuggestion,
+  onOpenEdit,
 }) {
   const statusNeedsReview = normalized.status === "blocked" || normalized.status === "needs_review" || isScheduleGridBlocked(normalized);
   const { validCount, rejectedCount } = gridValidationCounts(gridValidation);
@@ -343,6 +375,7 @@ function DirectorResultCard({
           ? "הייבוא האמיתי עדיין כבוי עד בדיקה ואישור."
           : "אפשר לעבור על הסיכום לפני כל ייבוא אמיתי.",
       ];
+  const rejectedSuggestions = asArray(gridValidation?.rejected_candidates).filter((item) => asObject(item).suggestion.action);
 
   return (
     <section className="director-result-card">
@@ -372,6 +405,43 @@ function DirectorResultCard({
           <p key={message}>{message}</p>
         ))}
       </div>
+      {rejectedSuggestions.length ? (
+        <section className="repair-suggestions" aria-label="הצעות תיקון">
+          <div className="section-head compact-head">
+            <h3>הצעות תיקון</h3>
+            <span>{rejectedSuggestions.length} שורות לבדיקה</span>
+          </div>
+          <div className="repair-suggestion-grid">
+            {rejectedSuggestions.slice(0, 6).map((item) => {
+              const safe = asObject(item);
+              const suggestion = asObject(safe.suggestion);
+              const candidate = scheduleGridRows[Number(safe.index)] || asObject(safe.candidate);
+              const review = candidateReviews[candidateKey(candidate, Number(safe.index) || 0)];
+              const locallyHandled = review?.status === "ignored" || review?.status === "accepted";
+              return (
+                <article className="repair-suggestion-card" key={`suggestion-${safe.index}`}>
+                  <span className="suggestion-problem">{suggestionProblemText(item)}</span>
+                  <strong>{suggestedActionLabel(suggestion)}</strong>
+                  <p>{suggestion.explanation_he || "נדרשת בדיקה ידנית."}</p>
+                  {suggestion.confidence != null ? <small>ביטחון: {formatConfidence(Number(suggestion.confidence))}</small> : null}
+                  {locallyHandled ? <small>עודכן מקומית. אפשר להריץ אימות מחדש.</small> : null}
+                  <div className="row-actions">
+                    <button className="secondary-button compact-button" type="button" onClick={() => onAcceptSuggestion(safe)}>
+                      קבל הצעה
+                    </button>
+                    <button className="secondary-button compact-button" type="button" onClick={() => onIgnoreSuggestion(safe)}>
+                      התעלם
+                    </button>
+                    <button className="secondary-button compact-button" type="button" onClick={() => onOpenEdit(safe)}>
+                      פתח לעריכה
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -527,6 +597,45 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
     }
   };
 
+  const updateCandidateReview = (candidate, index, patch, { clearValidation = false } = {}) => {
+    const key = candidateKey(candidate, index);
+    if (clearValidation) setGridValidation(null);
+    setCandidateReviews((current) => ({
+      ...current,
+      [key]: { ...defaultCandidateReview(candidate), ...current[key], ...patch },
+    }));
+  };
+
+  const acceptSuggestion = (rejectedItem) => {
+    const index = Number(asObject(rejectedItem).index);
+    const candidate = scheduleGridRows[index] || asObject(rejectedItem).candidate;
+    const suggestion = asObject(asObject(rejectedItem).suggestion);
+    const proposed = asObject(suggestion.proposed_values);
+    if (suggestion.action === "ignore_as_non_lesson") {
+      updateCandidateReview(candidate, index, { status: "ignored" });
+      return;
+    }
+    if (suggestion.action === "fill_missing_class" && proposed.class_name) {
+      updateCandidateReview(candidate, index, { status: "accepted", class_name: String(proposed.class_name) });
+      return;
+    }
+    if (suggestion.action === "edit_subject" && proposed.subject) {
+      updateCandidateReview(candidate, index, { status: "accepted", subject: String(proposed.subject) });
+      return;
+    }
+    setShowCandidateDetails(true);
+  };
+
+  const ignoreSuggestion = (rejectedItem) => {
+    const index = Number(asObject(rejectedItem).index);
+    const candidate = scheduleGridRows[index] || asObject(rejectedItem).candidate;
+    updateCandidateReview(candidate, index, { status: "ignored" });
+  };
+
+  const openSuggestionForEdit = () => {
+    setShowCandidateDetails(true);
+  };
+
   return (
     <div className="import-excel-page" dir="rtl">
       <PageHeader
@@ -552,7 +661,11 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
             scheduleGridRows={scheduleGridRows}
             gridValidation={gridValidation}
             gridValidationLoading={gridValidationLoading}
+            candidateReviews={candidateReviews}
             onValidate={validateReviewedCandidates}
+            onAcceptSuggestion={acceptSuggestion}
+            onIgnoreSuggestion={ignoreSuggestion}
+            onOpenEdit={openSuggestionForEdit}
           />
           <section className="panel">
             <div className="section-head">
@@ -679,7 +792,14 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
                                   <span className={`review-status ${review.status}`}>{candidateStatusLabel(review.status)}</span>
                                   {lowConfidence ? <span className="review-warning">דורש בדיקה</span> : null}
                                 </td>
-                                <td>{candidateValue(candidate, ["class_name", "class", "group_name", "group"], t.unavailable)}</td>
+                                <td>
+                                  <input
+                                    aria-label="עריכת הכיתה או הקבוצה"
+                                    disabled={review.status === "ignored"}
+                                    value={review.class_name}
+                                    onChange={(event) => updateReview({ class_name: event.target.value })}
+                                  />
+                                </td>
                                 <td>{candidateValue(candidate, ["day"], t.unavailable)}</td>
                                 <td>{candidateValue(candidate, ["slot_label", "time", "slot"], t.unavailable)}</td>
                                 <td className="raw-cell">{candidateValue(candidate, ["raw_cell", "original_cell_text", "cell_text", "text"], t.unavailable)}</td>

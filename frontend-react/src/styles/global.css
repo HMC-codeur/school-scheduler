@@ -432,6 +432,60 @@ button {
   font-size: 28px;
 }
 
+.compact-head {
+  align-items: center;
+  gap: 10px;
+}
+
+.compact-head h3 {
+  font-size: 20px;
+}
+
+.compact-head span {
+  color: #667789;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.repair-suggestions {
+  display: grid;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.repair-suggestion-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.repair-suggestion-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #dfe6ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.repair-suggestion-card strong {
+  color: #17212b;
+}
+
+.repair-suggestion-card p {
+  margin: 0;
+}
+
+.repair-suggestion-card small,
+.suggestion-problem {
+  color: #667789;
+  font-size: 13px;
+}
+
+.suggestion-problem {
+  overflow-wrap: anywhere;
+}
+
 .disclosure-panel {
   padding: 0;
   margin-bottom: 16px;
@@ -966,6 +1020,7 @@ th {
   .stat-grid,
   .stat-grid.compact,
   .director-metrics,
+  .repair-suggestion-grid,
   .card-grid,
   .room-grid,
   .group-grid,

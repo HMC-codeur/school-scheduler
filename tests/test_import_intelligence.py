@@ -508,6 +508,46 @@ def test_validate_grid_candidates_rejects_missing_subject() -> None:
     assert {error["code"] for error in payload["blocking_errors"]} == {"missing_subject"}
 
 
+def test_validate_grid_candidates_suggests_missing_class_from_raw_cell() -> None:
+    payload = validate_grid_candidates(
+        [
+            grid_candidate(
+                class_name="",
+                raw_cell="חינוך גופני ט1-יב1 מורה:גרס שלום",
+                subject="חינוך גופני",
+            )
+        ]
+    )
+    suggestion = payload["rejected_candidates"][0]["suggestion"]
+    assert suggestion["action"] == "fill_missing_class"
+    assert suggestion["proposed_values"]["class_name"] == "יב1"
+    assert 0 <= suggestion["confidence"] <= 1
+    assert payload["can_import"] is False
+    assert payload["dry_run"] is True
+
+
+def test_validate_grid_candidates_suggests_ignoring_availability_noise() -> None:
+    payload = validate_grid_candidates(
+        [
+            grid_candidate(
+                class_name="",
+                raw_cell="זמינות מורה: לא פנוי ביום שני",
+                subject="",
+            )
+        ]
+    )
+    suggestion = payload["rejected_candidates"][0]["suggestion"]
+    assert suggestion["action"] == "ignore_as_non_lesson"
+    assert "לא נראית כמו שיעור" in suggestion["explanation_he"]
+
+
+def test_validate_grid_candidates_suggests_subject_edit_or_manual_review() -> None:
+    payload = validate_grid_candidates([grid_candidate(subject="", raw_cell="Mathématiques 6eA")])
+    suggestion = payload["rejected_candidates"][0]["suggestion"]
+    assert suggestion["action"] in {"edit_subject", "manual_review"}
+    assert 0 <= suggestion["confidence"] <= 1
+
+
 def test_validate_grid_candidates_rejects_missing_class_day_or_slot() -> None:
     payload = validate_grid_candidates(
         [
