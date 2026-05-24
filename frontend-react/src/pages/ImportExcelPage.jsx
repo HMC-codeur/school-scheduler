@@ -119,9 +119,9 @@ function previewConstraintRows(normalized) {
 
 function previewScheduleGridRows(normalized) {
   const preview = asObject(normalized?.normalized_preview);
-  return asArray(preview.schedule_grid_preview).length
-    ? asArray(preview.schedule_grid_preview)
-    : asArray(preview.lesson_candidates);
+  return asArray(preview.lesson_candidates).length
+    ? asArray(preview.lesson_candidates)
+    : asArray(preview.schedule_grid_preview);
 }
 
 function isScheduleGridBlocked(normalized) {
@@ -156,10 +156,62 @@ function detectedDataMessage(normalized) {
   return "";
 }
 
+function candidateValue(candidate, keys, fallback = "") {
+  const safeCandidate = asObject(candidate);
+  for (const key of keys) {
+    const value = safeCandidate[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function candidateKey(candidate, index) {
+  const safeCandidate = asObject(candidate);
+  const trace = asObject(safeCandidate.source_trace);
+  return [
+    trace.sheet_name || safeCandidate.sheet_name || "grid",
+    trace.row ?? safeCandidate.row ?? "row",
+    trace.column ?? safeCandidate.column ?? "col",
+    index,
+  ].join("-");
+}
+
+function candidateConfidence(candidate) {
+  const value = Number(candidateValue(candidate, ["confidence"], NaN));
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatConfidence(confidence) {
+  if (confidence == null) return "";
+  return confidence <= 1 ? `${Math.round(confidence * 100)}%` : `${Math.round(confidence)}%`;
+}
+
+function isLowConfidenceCandidate(candidate) {
+  const confidence = candidateConfidence(candidate);
+  const warnings = asArray(asObject(candidate).warnings);
+  return warnings.length > 0 || (confidence != null && confidence < 0.6);
+}
+
+function defaultCandidateReview(candidate) {
+  return {
+    status: isLowConfidenceCandidate(candidate) ? "low_confidence" : "needs_review",
+    subject: String(candidateValue(candidate, ["subject", "subject_name", "detected_subject"], "")),
+    teacher: String(candidateValue(candidate, ["teacher", "teacher_name", "detected_teacher"], "")),
+  };
+}
+
+function candidateStatusLabel(status) {
+  if (status === "accepted") return "accepted preview";
+  if (status === "ignored") return "ignored";
+  if (status === "low_confidence") return "low confidence";
+  return "needs review";
+}
+
 export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, language }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [commitResult, setCommitResult] = useState(null);
+  const [candidateReviews, setCandidateReviews] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const normalized = preview ? normalizeImportResult(preview) : null;
@@ -181,6 +233,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
       const result = await previewExcel(file);
       setPreview(result);
       setCommitResult(null);
+      setCandidateReviews({});
       setImportPreview(normalizeImportResult(result));
     } catch (err) {
       setError(err.message || t.error);
@@ -227,6 +280,7 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
         lessons: [],
       };
       setPreview(demoPreview);
+      setCandidateReviews({});
       setImportPreview(demoPreview);
     } catch (err) {
       setError(err.message || t.error);
@@ -337,19 +391,83 @@ export function ImportExcelPage({ navigate, refreshData, setImportPreview, t, la
               </section>
             ) : null}
             {scheduleGridRows.length ? (
-              <section className="stack-form">
-                <h3>Grille planning en aperçu</h3>
-                {scheduleGridRows.slice(0, 12).map((candidate, index) => {
-                  const safeCandidate = asObject(candidate);
-                  return (
-                    <div className="schedule-item" key={`schedule-grid-${safeCandidate.source_trace?.row || "row"}-${safeCandidate.source_trace?.column || "col"}-${index}`}>
-                      <time>{safeCandidate.day || ""} {safeCandidate.time || safeCandidate.slot || ""}</time>
-                      <strong>{safeCandidate.class_name || t.unavailable}</strong>
-                      <span>{safeCandidate.subject || safeCandidate.raw_cell || t.unavailable}</span>
-                      <span>{safeCandidate.teacher || safeCandidate.confidence || ""}</span>
-                    </div>
-                  );
-                })}
+              <section className="stack-form schedule-grid-review">
+                <div className="section-head">
+                  <div>
+                    <h3>Grille planning en aperçu</h3>
+                    <p>Ces cours sont détectés depuis une grille. Confirmez-les avant import réel.</p>
+                  </div>
+                </div>
+                <div className="table-wrap">
+                  <table className="review-table">
+                    <thead>
+                      <tr>
+                        <th>Statut</th>
+                        <th>Classe / groupe</th>
+                        <th>Jour</th>
+                        <th>Créneau</th>
+                        <th>Cellule originale</th>
+                        <th>Matière détectée</th>
+                        <th>Prof détecté</th>
+                        <th>Confiance</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scheduleGridRows.map((candidate, index) => {
+                        const key = candidateKey(candidate, index);
+                        const review = candidateReviews[key] || defaultCandidateReview(candidate);
+                        const confidence = candidateConfidence(candidate);
+                        const lowConfidence = isLowConfidenceCandidate(candidate);
+                        const updateReview = (patch) => {
+                          setCandidateReviews((current) => ({
+                            ...current,
+                            [key]: { ...defaultCandidateReview(candidate), ...current[key], ...patch },
+                          }));
+                        };
+                        return (
+                          <tr className={`review-row ${review.status}`} key={key}>
+                            <td>
+                              <span className={`review-status ${review.status}`}>{candidateStatusLabel(review.status)}</span>
+                              {lowConfidence ? <span className="review-warning">À vérifier</span> : null}
+                            </td>
+                            <td>{candidateValue(candidate, ["class_name", "class", "group_name", "group"], t.unavailable)}</td>
+                            <td>{candidateValue(candidate, ["day"], t.unavailable)}</td>
+                            <td>{candidateValue(candidate, ["slot_label", "time", "slot"], t.unavailable)}</td>
+                            <td className="raw-cell">{candidateValue(candidate, ["raw_cell", "original_cell_text", "cell_text", "text"], t.unavailable)}</td>
+                            <td>
+                              <input
+                                aria-label="Modifier la matière détectée"
+                                disabled={review.status === "ignored"}
+                                value={review.subject}
+                                onChange={(event) => updateReview({ subject: event.target.value })}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                aria-label="Modifier le professeur détecté"
+                                disabled={review.status === "ignored"}
+                                value={review.teacher}
+                                onChange={(event) => updateReview({ teacher: event.target.value })}
+                              />
+                            </td>
+                            <td>{formatConfidence(confidence) || t.unavailable}</td>
+                            <td>
+                              <div className="row-actions">
+                                <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "accepted" })}>
+                                  Accepter
+                                </button>
+                                <button className="secondary-button compact-button" type="button" onClick={() => updateReview({ status: "ignored" })}>
+                                  Ignorer
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             ) : null}
             {!rows.length && !availabilityRows.length && !constraintRows.length && !scheduleGridRows.length ? <EmptyState title="אין שורות Preview להצגה" description="בדמו המסחרי הנתונים נטענים לשרת והאבחון מציג את הבעיות." /> : null}

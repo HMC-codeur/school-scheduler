@@ -250,6 +250,12 @@ button {
   opacity: 0.65;
 }
 
+.compact-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -710,6 +716,86 @@ th {
   color: #526173;
   direction: ltr;
   text-align: right;
+}
+
+.schedule-grid-review p {
+  margin: 6px 0 0;
+  color: #526173;
+}
+
+.review-table {
+  min-width: 1180px;
+}
+
+.review-table input {
+  width: 180px;
+  min-height: 36px;
+  border: 1px solid #cad4e0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+
+.review-table input:disabled {
+  color: #667789;
+  background: #f1f4f8;
+}
+
+.review-row.needs_review {
+  --row-tone: #557089;
+}
+
+.review-row.low_confidence {
+  --row-tone: #c27512;
+  background: #fffaf2;
+}
+
+.review-row.ignored {
+  --row-tone: #667789;
+  color: #667789;
+  background: #f8fafc;
+}
+
+.review-row.accepted {
+  --row-tone: #168255;
+  background: #f4fbf7;
+}
+
+.review-row td:first-child {
+  border-right: 4px solid var(--row-tone, #557089);
+}
+
+.review-status,
+.review-warning {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-inline-end: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.review-status {
+  color: var(--row-tone, #557089);
+  background: color-mix(in srgb, var(--row-tone, #557089) 12%, white);
+}
+
+.review-warning {
+  color: #8a540d;
+  background: #fff0d3;
+}
+
+.raw-cell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
 }
 
 @media (max-width: 1100px) {
